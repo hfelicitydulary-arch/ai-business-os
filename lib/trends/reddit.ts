@@ -1,6 +1,3 @@
-// Fetches trending posts from fact/curiosity-focused subreddits
-// No API key required — uses Reddit's public JSON endpoints
-
 const SUBREDDITS = [
   "todayilearned",
   "interestingasfuck",
@@ -24,9 +21,17 @@ export async function fetchRedditTrends(): Promise<TrendTopic[]> {
     try {
       const res = await fetch(
         `https://www.reddit.com/r/${sub}/top.json?t=day&limit=10`,
-        { headers: { "User-Agent": "ai-bos-trend-scanner/1.0" } }
+        {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+        }
       );
-      if (!res.ok) continue;
+ 
+      if (!res.ok) {
+        console.error(`Reddit fetch failed for r/${sub}: ${res.status} ${res.statusText}`);
+        continue;
+      }
 
       const data = await res.json();
       const posts = data?.data?.children ?? [];
@@ -49,4 +54,4 @@ export async function fetchRedditTrends(): Promise<TrendTopic[]> {
 
   return results.sort((a, b) => b.score - a.score);
 }
- 
+
