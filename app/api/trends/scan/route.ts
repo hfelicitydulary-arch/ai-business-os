@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { fetchRedditTrends } from "@/lib/trends/reddit";
+import { fetchRedditTrends } from "../../../../lib/trends/reddit";
 
 export async function GET() {
   try {
