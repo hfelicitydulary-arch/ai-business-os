@@ -27,7 +27,7 @@ export async function fetchRedditTrends(): Promise<TrendTopic[]> {
           },
         }
       );
- 
+
       if (!res.ok) {
         console.error(`Reddit fetch failed for r/${sub}: ${res.status} ${res.statusText}`);
         continue;
@@ -54,4 +54,3 @@ export async function fetchRedditTrends(): Promise<TrendTopic[]> {
 
   return results.sort((a, b) => b.score - a.score);
 }
-
