@@ -36,8 +36,10 @@ export async function POST(req: NextRequest) {
 
     // 2. Fetch the video file from the generator's URL
     const videoRes = await fetch(videoUrl);
-    if (!videoRes.ok) {
-      throw new Error(`Failed to fetch video from ${videoUrl}`);
+        if (!videoRes.ok) {
+      throw new Error(
+        `Failed to fetch video from ${videoUrl} — status ${videoRes.status} ${videoRes.statusText}`
+      );
     }
     const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
 
