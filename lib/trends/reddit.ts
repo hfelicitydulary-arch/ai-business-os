@@ -1,6 +1,6 @@
 export interface TrendTopic {
   title: string;
-  source: "hackernews";
+    source: "hackernews" | "devto";
   sourceUrl: string;
   score: number;
   subreddit: string;
