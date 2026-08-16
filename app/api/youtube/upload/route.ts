@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { notifyFailure } from "../../../../lib/notify";
 
 async function getAccessToken() {
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     // 2. Fetch the video file from the generator's URL
     const videoRes = await fetch(videoUrl);
-        if (!videoRes.ok) {
+    if (!videoRes.ok) {
       throw new Error(
         `Failed to fetch video from ${videoUrl} — status ${videoRes.status} ${videoRes.statusText}`
       );
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("Upload error:", err);
+    await notifyFailure("YouTube upload", err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
