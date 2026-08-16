@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { notifyFailure } from "../../../../lib/notify";
 
-async function getAccessToken() {
+async function getAccessToken(refreshToken: string) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: process.env.YOUTUBE_CLIENT_ID!,
       client_secret: process.env.YOUTUBE_CLIENT_SECRET!,
-      refresh_token: process.env.YOUTUBE_REFRESH_TOKEN!,
+      refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
@@ -19,23 +20,43 @@ async function getAccessToken() {
 
   const data = await res.json();
   return data.access_token as string;
-} 
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { videoUrl, title, description, tags } = await req.json();
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    if (!videoUrl || !title) {
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const { videoUrl, title, description, tags, channelId } = await req.json();
+
+    if (!videoUrl || !title || !channelId) {
       return NextResponse.json(
-        { error: "videoUrl and title are required" },
+        { error: "videoUrl, title, and channelId are required" },
         { status: 400 }
       );
     }
 
-    // 1. Get a fresh access token
-    const accessToken = await getAccessToken();
+    // 1. Look up the selected channel's stored refresh token
+    const { data: channel, error: channelError } = await supabase
+      .from("youtube_channels")
+      .select("refresh_token, channel_name")
+      .eq("id", channelId)
+      .single();
 
-    // 2. Fetch the video file from the generator's URL
+    if (channelError || !channel) {
+      return NextResponse.json({ error: "Channel not found" }, { status: 404 });
+    }
+
+    // 2. Get a fresh access token for that specific channel
+    const accessToken = await getAccessToken(channel.refresh_token);
+
+    // 3. Fetch the video file from the generator's URL
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) {
       throw new Error(
@@ -44,20 +65,20 @@ export async function POST(req: NextRequest) {
     }
     const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
 
-    // 3. Build metadata for YouTube
+    // 4. Build metadata for YouTube
     const metadata = {
       snippet: {
         title,
         description: description || "",
         tags: tags || [],
-        categoryId: "22", // People & Blogs — change if needed
+        categoryId: "22",
       },
       status: {
-        privacyStatus: "private", // switch to "public" once you trust the pipeline
+        privacyStatus: "private",
       },
     };
 
-    // 4. Multipart upload to YouTube Data API v3 (videos.insert)
+    // 5. Multipart upload to YouTube Data API v3 (videos.insert)
     const boundary = "AIBOS_BOUNDARY";
     const multipartBody = Buffer.concat([
       Buffer.from(
@@ -91,6 +112,7 @@ export async function POST(req: NextRequest) {
       success: true,
       videoId: uploadData.id,
       url: `https://youtube.com/watch?v=${uploadData.id}`,
+      channel: channel.channel_name,
     });
   } catch (err: any) {
     console.error("Upload error:", err);
