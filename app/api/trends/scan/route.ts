@@ -1,11 +1,17 @@
-export const dynamic = "force-dynamic";
+
+  export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { fetchRedditTrends } from "../../../../lib/trends/reddit";
+import { fetchDevToTrends } from "../../../../lib/trends/devto";
 
 export async function GET() {
   try {
-    const trends = await fetchRedditTrends();
+    const [hackerNews, devTo] = await Promise.all([
+      fetchRedditTrends(),
+      fetchDevToTrends(),
+    ]);
+    const trends = [...hackerNews, ...devTo].sort((a, b) => b.score - a.score);
     return NextResponse.json({
       success: true,
       count: trends.length,
@@ -19,3 +25,4 @@ export async function GET() {
     );
   }
 }
+
