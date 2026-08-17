@@ -36,6 +36,10 @@ export default function DashboardClient() {
   const [uploading, setUploading] = useState(false);
   const [history, setHistory] = useState<UploadResult[]>([]);
 
+  const [scripts, setScripts] = useState<Record<number, string>>({});
+  const [generatingIdx, setGeneratingIdx] = useState<number | null>(null);
+  const [scriptError, setScriptError] = useState<Record<number, string>>({});
+
   useEffect(() => {
     fetchTrends();
     fetchChannels();
@@ -70,8 +74,35 @@ export default function DashboardClient() {
         }
       }
     } catch (err) {
-      // Non-fatal — channels section will just show empty
+      // Non-fatal
     }
+  }
+
+  async function generateScript(idx: number, trend: Trend) {
+    setGeneratingIdx(idx);
+    setScriptError((prev) => ({ ...prev, [idx]: '' }));
+    try {
+      const res = await fetch('/api/scripts/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trend.title, source: trend.source }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate script');
+      setScripts((prev) => ({ ...prev, [idx]: data.script }));
+    } catch (err) {
+      setScriptError((prev) => ({
+        ...prev,
+        [idx]: err instanceof Error ? err.message : 'Something went wrong',
+      }));
+    } finally {
+      setGeneratingIdx(null);
+    }
+  }
+
+  function useScriptAsTitle(trend: Trend) {
+    setTitle(trend.title);
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
   async function handleUpload(e: React.FormEvent) {
@@ -144,19 +175,43 @@ export default function DashboardClient() {
 
         <div className="space-y-2">
           {trends.map((t, i) => (
-            <a
-              key={i}
-              href={t.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block border border-white/10 rounded p-3 hover:bg-white/5"
-            >
-              <div className="flex justify-between text-sm text-white/50 mb-1">
-                <span>{t.source}</span>
-                <span>score: {t.score}</span>
+            <div key={i} className="border border-white/10 rounded p-3 hover:bg-white/5">
+              <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="block">
+                <div className="flex justify-between text-sm text-white/50 mb-1">
+                  <span>{t.source}</span>
+                  <span>score: {t.score}</span>
+                </div>
+                <div>{t.title}</div>
+              </a>
+
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  onClick={() => generateScript(i, t)}
+                  disabled={generatingIdx === i}
+                  className="text-xs px-2 py-1 border border-white/20 rounded hover:bg-white/10 disabled:opacity-50"
+                >
+                  {generatingIdx === i ? 'Generating...' : 'Generate script'}
+                </button>
+                {scripts[i] && (
+                  <button
+                    onClick={() => useScriptAsTitle(t)}
+                    className="text-xs px-2 py-1 border border-green-500/40 text-green-400 rounded hover:bg-green-500/10"
+                  >
+                    Use as upload title
+                  </button>
+                )}
               </div>
-              <div>{t.title}</div>
-            </a>
+
+              {scriptError[i] && (
+                <p className="text-red-400 text-xs mt-2">{scriptError[i]}</p>
+              )}
+
+              {scripts[i] && (
+                <div className="mt-2 bg-white/5 border border-white/10 rounded p-3 text-sm whitespace-pre-wrap">
+                  {scripts[i]}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </section>
