@@ -16,8 +16,26 @@ async function sendDiscordUpdate(message: string) {
   } catch {}
 }
 
+async function askClaude(prompt: string, maxTokens: number) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY!,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Claude API failed: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  return data.content?.[0]?.text || "";
+}
+
 export async function GET(req: NextRequest) {
-  // Only Vercel's cron scheduler (or someone with the secret) can trigger this
   const authHeader = req.headers.get("authorization");
   if (
     process.env.CRON_SECRET &&
@@ -29,7 +47,7 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = createAdminClient();
 
-    // 1. Get fresh trends and filter out anything scripted in the last 30 days
+    // 1. Get fresh trends, filter out anything scripted in the last 30 days
     const [hackerNews, devTo] = await Promise.all([
       fetchRedditTrends(),
       fetchDevToTrends(),
@@ -43,14 +61,39 @@ export async function GET(req: NextRequest) {
       .gte("generated_at", thirtyDaysAgo);
     const usedTitles = new Set((used || []).map((u) => u.title));
 
-    const candidate = allTrends.find((t) => !usedTitles.has(t.title));
+    const candidates = allTrends.filter((t) => !usedTitles.has(t.title)).slice(0, 8);
 
-    if (!candidate) {
+    if (candidates.length === 0) {
       await sendDiscordUpdate("⚠️ Auto-publish: no fresh (unused) trends available right now.");
       return NextResponse.json({ success: false, reason: "No fresh trends" });
     }
 
-    // 2. Decide format: alternate based on how many queue items exist today
+    // 2. Let Claude judge which candidate is actually most video-worthy —
+    // not just highest upvote score, but genuinely interesting to watch.
+    const judgePrompt = `You're picking which trending topic to turn into a video today for a small, growing YouTube channel. Judge based on which has the most genuine hook/story potential for video — not just which is most upvoted.
+
+Candidates:
+${candidates.map((c, i) => `${i}. "${c.title}" (source: ${c.source}, score: ${c.score})`).join("\n")}
+
+Respond ONLY in this JSON format:
+{"chosenIndex": 0, "reason": "one sentence on why this one has the best video potential"}`;
+
+    let chosenIndex = 0;
+    let reason = "Highest-scoring available trend";
+    try {
+      const judgeText = await askClaude(judgePrompt, 200);
+      const judged = JSON.parse(judgeText);
+      if (typeof judged.chosenIndex === "number" && candidates[judged.chosenIndex]) {
+        chosenIndex = judged.chosenIndex;
+        reason = judged.reason || reason;
+      }
+    } catch {
+      // Fall back to highest-scored candidate (index 0) if judging fails
+    }
+
+    const candidate = candidates[chosenIndex];
+
+    // 3. Decide format: cycle 1 Short, 2 long per day (positions 0=short, 1=long, 2=long)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const { count: todayCount } = await supabase
@@ -58,15 +101,16 @@ export async function GET(req: NextRequest) {
       .select("*", { count: "exact", head: true })
       .gte("created_at", todayStart.toISOString());
 
-    const format = (todayCount ?? 0) % 2 === 0 ? "short" : "long";
+    const position = (todayCount ?? 0) % 3;
+    const format = position === 0 ? "short" : "long";
 
-    // 3. Generate script + metadata, tailored to format
+    // 4. Generate script + metadata, tailored to format
     const lengthInstruction =
       format === "short"
         ? "Write for a YouTube Short: 15-30 seconds spoken, 40-70 words, punchy, hook in the first line."
         : "Write for a standard YouTube video: 30-45 seconds spoken, 90-120 words, conversational.";
 
-    const prompt = `Create YouTube video content based on this trending topic. Prioritize a genuinely specific, non-generic angle — avoid the flat, interchangeable "AI slop" tone that reads as mass-produced.
+    const scriptPrompt = `Create YouTube video content based on this trending topic. Prioritize a genuinely specific, non-generic angle — avoid the flat, interchangeable "AI slop" tone that reads as mass-produced.
 
 ${lengthInstruction}
 
@@ -81,26 +125,7 @@ Respond ONLY in this exact JSON format, no other text:
   "tags": ["5-8 relevant search tags as an array of short strings"]
 }`;
 
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY!,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 700,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      throw new Error(`Claude API failed: ${claudeRes.status} ${await claudeRes.text()}`);
-    }
-
-    const claudeData = await claudeRes.json();
-    const rawText = claudeData.content?.[0]?.text || "{}";
+    const rawText = await askClaude(scriptPrompt, 700);
     let parsed;
     try {
       parsed = JSON.parse(rawText);
@@ -108,7 +133,7 @@ Respond ONLY in this exact JSON format, no other text:
       parsed = { script: rawText, seoTitle: candidate.title, description: "", tags: [] };
     }
 
-    // 4. Save to queue + mark trend as used
+    // 5. Save to queue + mark trend as used
     const { data: queueItem, error: insertError } = await supabase
       .from("content_queue")
       .insert({
@@ -118,6 +143,7 @@ Respond ONLY in this exact JSON format, no other text:
         tags: parsed.tags || [],
         script: parsed.script,
         format,
+        selection_reason: reason,
       })
       .select()
       .single();
@@ -130,7 +156,7 @@ Respond ONLY in this exact JSON format, no other text:
     });
 
     await sendDiscordUpdate(
-      `📝 New ${format === "short" ? "Short" : "video"} draft ready: **${parsed.seoTitle}**\nAttach a video and publish from the /queue page.`
+      `📝 New ${format === "short" ? "Short" : "video"} draft ready: **${parsed.seoTitle}**\n💡 Why this trend: ${reason}\nAttach a video and publish from the /queue page.`
     );
 
     return NextResponse.json({ success: true, queueItem });
