@@ -39,6 +39,7 @@ export default function DashboardClient() {
   const [scripts, setScripts] = useState<Record<number, string>>({});
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null);
   const [scriptError, setScriptError] = useState<Record<number, string>>({});
+  const [reviews, setReviews] = useState<Record<number, { riskLevel: string; issues: string[]; suggestion: string }>>({});
 
   useEffect(() => {
     fetchTrends();
@@ -90,6 +91,21 @@ export default function DashboardClient() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate script');
       setScripts((prev) => ({ ...prev, [idx]: data.script }));
+
+      // Run compliance check automatically after script generation
+      try {
+        const reviewRes = await fetch('/api/content/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: trend.title, script: data.script }),
+        });
+        const reviewData = await reviewRes.json();
+        if (reviewRes.ok) {
+          setReviews((prev) => ({ ...prev, [idx]: reviewData.review }));
+        }
+      } catch (reviewErr) {
+        // Non-fatal — script still usable even if compliance check fails to run
+      }
     } catch (err) {
       setScriptError((prev) => ({
         ...prev,
@@ -211,6 +227,30 @@ export default function DashboardClient() {
                   {scripts[i]}
                 </div>
               )}
+
+              {reviews[i] && (
+                <div
+                  className={`mt-2 border rounded p-3 text-xs ${
+                    reviews[i].riskLevel === 'high'
+                      ? 'border-red-500/40 bg-red-500/10'
+                      : reviews[i].riskLevel === 'medium'
+                      ? 'border-yellow-500/40 bg-yellow-500/10'
+                      : 'border-green-500/40 bg-green-500/10'
+                  }`}
+                >
+                  <div className="font-semibold uppercase mb-1">
+                    Ban risk: {reviews[i].riskLevel}
+                  </div>
+                  {reviews[i].issues.length > 0 && (
+                    <ul className="list-disc list-inside mb-1">
+                      {reviews[i].issues.map((issue, j) => (
+                        <li key={j}>{issue}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="text-white/70">{reviews[i].suggestion}</div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -291,3 +331,4 @@ export default function DashboardClient() {
     </div>
   );
 }
+
