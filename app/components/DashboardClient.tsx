@@ -33,10 +33,11 @@ export default function DashboardClient() {
 
   const [videoUrl, setVideoUrl] = useState('');
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [uploading, setUploading] = useState(false);
   const [history, setHistory] = useState<UploadResult[]>([]);
 
-  const [scripts, setScripts] = useState<Record<number, string>>({});
+  const [scripts, setScripts] = useState<Record<number, { script: string; seoTitle: string; description: string; tags: string[] }>>({});
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null);
   const [scriptError, setScriptError] = useState<Record<number, string>>({});
   const [reviews, setReviews] = useState<Record<number, { riskLevel: string; issues: string[]; suggestion: string }>>({});
@@ -90,14 +91,22 @@ export default function DashboardClient() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate script');
-      setScripts((prev) => ({ ...prev, [idx]: data.script }));
+      setScripts((prev) => ({
+        ...prev,
+        [idx]: {
+          script: data.script,
+          seoTitle: data.seoTitle,
+          description: data.description,
+          tags: data.tags,
+        },
+      }));
 
       // Run compliance check automatically after script generation
       try {
         const reviewRes = await fetch('/api/content/review', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: trend.title, script: data.script }),
+          body: JSON.stringify({ title: data.seoTitle, script: data.script }),
         });
         const reviewData = await reviewRes.json();
         if (reviewRes.ok) {
@@ -116,8 +125,11 @@ export default function DashboardClient() {
     }
   }
 
-  function useScriptAsTitle(trend: Trend) {
-    setTitle(trend.title);
+  function useScriptAsTitle(idx: number) {
+    const s = scripts[idx];
+    if (!s) return;
+    setTitle(s.seoTitle);
+    setDescription(s.description);
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   }
 
@@ -129,7 +141,7 @@ export default function DashboardClient() {
       const res = await fetch('/api/youtube/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoUrl, title, channelId: selectedChannelId }),
+        body: JSON.stringify({ videoUrl, title, description, channelId: selectedChannelId }),
       });
       const data = await res.json();
       setHistory((prev) => [
@@ -145,6 +157,7 @@ export default function DashboardClient() {
       if (res.ok) {
         setVideoUrl('');
         setTitle('');
+        setDescription('');
       }
     } catch (err) {
       setHistory((prev) => [
@@ -210,7 +223,7 @@ export default function DashboardClient() {
                 </button>
                 {scripts[i] && (
                   <button
-                    onClick={() => useScriptAsTitle(t)}
+                    onClick={() => useScriptAsTitle(i)}
                     className="text-xs px-2 py-1 border border-green-500/40 text-green-400 rounded hover:bg-green-500/10"
                   >
                     Use as upload title
@@ -224,7 +237,8 @@ export default function DashboardClient() {
 
               {scripts[i] && (
                 <div className="mt-2 bg-white/5 border border-white/10 rounded p-3 text-sm whitespace-pre-wrap">
-                  {scripts[i]}
+                  <p className="text-white/50 text-xs mb-1">Suggested title: {scripts[i].seoTitle}</p>
+                  {scripts[i].script}
                 </div>
               )}
 
@@ -295,6 +309,13 @@ export default function DashboardClient() {
               onChange={(e) => setTitle(e.target.value)}
               className="w-full bg-white/5 border border-white/20 rounded p-2 text-white"
             />
+            <textarea
+              placeholder="Video description (optional)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full bg-white/5 border border-white/20 rounded p-2 text-white text-sm"
+              rows={2}
+            />
             <button
               type="submit"
               disabled={uploading}
@@ -331,4 +352,5 @@ export default function DashboardClient() {
     </div>
   );
 }
+
 
