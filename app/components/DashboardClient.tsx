@@ -40,12 +40,26 @@ export default function DashboardClient() {
   const [scripts, setScripts] = useState<Record<number, { script: string; seoTitle: string; description: string; tags: string[] }>>({});
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null);
   const [scriptError, setScriptError] = useState<Record<number, string>>({});
+  const [usedTitles, setUsedTitles] = useState<Set<string>>(new Set());
   const [reviews, setReviews] = useState<Record<number, { riskLevel: string; issues: string[]; suggestion: string }>>({});
 
   useEffect(() => {
     fetchTrends();
     fetchChannels();
+    fetchUsedTitles();
   }, []);
+
+  async function fetchUsedTitles() {
+    try {
+      const res = await fetch('/api/scripts/used');
+      const data = await res.json();
+      if (data.titles) {
+        setUsedTitles(new Set(data.titles));
+      }
+    } catch (err) {
+      // Non-fatal
+    }
+  }
 
   async function fetchTrends() {
     setLoadingTrends(true);
@@ -100,6 +114,7 @@ export default function DashboardClient() {
           tags: data.tags,
         },
       }));
+      setUsedTitles((prev) => new Set(prev).add(trend.title));
 
       // Run compliance check automatically after script generation
       try {
@@ -210,7 +225,14 @@ export default function DashboardClient() {
                   <span>{t.source}</span>
                   <span>score: {t.score}</span>
                 </div>
-                <div>{t.title}</div>
+                <div className="flex items-center gap-2">
+                  <span>{t.title}</span>
+                  {usedTitles.has(t.title) && (
+                    <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      Already scripted
+                    </span>
+                  )}
+                </div>
               </a>
 
               <div className="mt-2 flex items-center gap-3">
@@ -352,5 +374,6 @@ export default function DashboardClient() {
     </div>
   );
 }
+
 
 
