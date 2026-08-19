@@ -11,10 +11,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = `Write a short, engaging video script (30-45 seconds when spoken, roughly 90-120 words) explaining this trending topic to a general audience. Keep it punchy and conversational, suitable for a talking-head video. Do not include stage directions or timestamps, just the spoken narration.
+    const prompt = `Create YouTube video content based on this trending topic. Prioritize a genuinely specific, non-generic angle — avoid the flat, interchangeable "AI slop" tone that makes mass-produced content read as low-effort (this matters for avoiding YouTube's repetitious/spam content policy, not just quality).
 
 Topic: "${title}"
-Source: ${source || "trending topic"}`;
+Source: ${source || "trending topic"}
+
+Respond ONLY in this exact JSON format, no other text:
+{
+  "script": "30-45 second spoken narration script, 90-120 words, conversational, no stage directions",
+  "seoTitle": "a specific, accurate YouTube title under 70 characters — no generic clickbait, no ALL CAPS spam, must genuinely match the script content",
+  "description": "2-3 sentence YouTube description, plain text",
+  "tags": ["5-8 relevant search tags as an array of short strings"]
+}`;
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -25,7 +33,7 @@ Source: ${source || "trending topic"}`;
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 500,
+        max_tokens: 700,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -36,9 +44,24 @@ Source: ${source || "trending topic"}`;
     }
 
     const data = await res.json();
-    const script = data.content?.[0]?.text || "";
+    const rawText = data.content?.[0]?.text || "{}";
 
-    return NextResponse.json({ success: true, script, title });
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      // Fallback: treat the whole response as the script if JSON parsing fails
+      parsed = { script: rawText, seoTitle: title, description: "", tags: [] };
+    }
+
+    return NextResponse.json({
+      success: true,
+      script: parsed.script,
+      seoTitle: parsed.seoTitle || title,
+      description: parsed.description || "",
+      tags: parsed.tags || [],
+      title,
+    });
   } catch (err: any) {
     console.error("Script generation error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
