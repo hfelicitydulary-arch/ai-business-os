@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,8 +51,22 @@ Respond ONLY in this exact JSON format, no other text:
     try {
       parsed = JSON.parse(rawText);
     } catch {
-      // Fallback: treat the whole response as the script if JSON parsing fails
       parsed = { script: rawText, seoTitle: title, description: "", tags: [] };
+    }
+
+    // Log this topic as used, so it doesn't silently get re-scripted later.
+    // Non-fatal if this fails or if the user isn't signed in for some reason —
+    // script generation should still succeed either way.
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("used_trends").insert({ title, source });
+      }
+    } catch (logErr) {
+      console.error("Failed to log used trend:", logErr);
     }
 
     return NextResponse.json({
