@@ -49,6 +49,12 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold">AI BOS</h1>
+          <p className="text-yellow-400 text-xs mt-2 break-all">
+            DEBUG URL: [{process.env.NEXT_PUBLIC_SUPABASE_URL || "EMPTY"}]
+          </p>
+          <p className="text-yellow-400 text-xs break-all">
+            DEBUG KEY LENGTH: {process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length || 0}
+          </p>
           <p className="text-white/50 mt-2">
             {mode === "signin" ? "Sign in to continue" : "Create an account"}
           </p>
@@ -99,4 +105,5 @@ export default function LoginPage() {
     </div>
   );
 }
+
 
