@@ -193,12 +193,20 @@ export default function DashboardClient() {
     <div className="min-h-screen bg-black text-white p-6">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-4xl font-bold">AI BOS</h1>
-        <Link
-          href="/channels"
-          className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10"
-        >
-          Manage channels
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/queue"
+            className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10"
+          >
+            Content queue
+          </Link>
+          <Link
+            href="/channels"
+            className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10"
+          >
+            Manage channels
+          </Link>
+        </div>
       </div>
       <p className="text-green-400 mb-8">Your AI Business Team is Ready</p>
 
@@ -374,6 +382,7 @@ export default function DashboardClient() {
     </div>
   );
 }
+
 
 
 
