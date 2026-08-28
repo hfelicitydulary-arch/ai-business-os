@@ -61,7 +61,22 @@ export async function GET(req: NextRequest) {
       .gte("generated_at", thirtyDaysAgo);
     const usedTitles = new Set((used || []).map((u) => u.title));
 
-    const candidates = allTrends.filter((t) => !usedTitles.has(t.title)).slice(0, 8);
+    const NICHE_KEYWORDS = [
+      "ai", "artificial intelligence", "llm", "gpt", "claude", "openai",
+      "machine learning", "chatbot", "automation", "software", "app",
+      "coding", "developer", "programming", "startup", "saas", "tech",
+      "google", "microsoft", "apple", "meta", "api", "open source",
+      "framework", "cloud", "data", "algorithm", "robot", "chip",
+    ];
+
+    const nicheFiltered = allTrends.filter((t) =>
+      NICHE_KEYWORDS.some((kw) => t.title.toLowerCase().includes(kw))
+    );
+
+    // Fall back to the full trend list only if nothing matches the niche today
+    const pool = nicheFiltered.length > 0 ? nicheFiltered : allTrends;
+
+    const candidates = pool.filter((t) => !usedTitles.has(t.title)).slice(0, 8);
 
     if (candidates.length === 0) {
       await sendDiscordUpdate("⚠️ Auto-publish: no fresh (unused) trends available right now.");
@@ -70,7 +85,7 @@ export async function GET(req: NextRequest) {
 
     // 2. Let Claude judge which candidate is actually most video-worthy —
     // not just highest upvote score, but genuinely interesting to watch.
-    const judgePrompt = `You're picking which trending topic to turn into a video today for a small, growing YouTube channel. Judge based on which has the most genuine hook/story potential for video — not just which is most upvoted.
+    const judgePrompt = `You're picking which trending topic to turn into a video today for a small, growing YouTube channel focused on AI tools and technology explainers. Judge based on which has the most genuine hook/story potential for an audience learning about AI and tech — not just which is most upvoted.
 
 Candidates:
 ${candidates.map((c, i) => `${i}. "${c.title}" (source: ${c.source}, score: ${c.score})`).join("\n")}
@@ -110,7 +125,7 @@ Respond ONLY in this JSON format:
         ? "Write for a YouTube Short: 15-30 seconds spoken, 40-70 words, punchy, hook in the first line."
         : "Write for a standard YouTube video: 30-45 seconds spoken, 90-120 words, conversational.";
 
-    const scriptPrompt = `Create YouTube video content based on this trending topic. Prioritize a genuinely specific, non-generic angle — avoid the flat, interchangeable "AI slop" tone that reads as mass-produced.
+    const scriptPrompt = `Create YouTube video content for an AI tools and technology explainer channel, based on this trending topic. Prioritize a genuinely specific, non-generic angle — avoid the flat, interchangeable "AI slop" tone that reads as mass-produced. Explain what it actually means for someone who uses tech day-to-day, not just industry insiders.
 
 ${lengthInstruction}
 
@@ -166,3 +181,4 @@ Respond ONLY in this exact JSON format, no other text:
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
