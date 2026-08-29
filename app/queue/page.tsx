@@ -42,6 +42,8 @@ export default function QueuePage() {
   const [selectedClip, setSelectedClip] = useState<Record<string, Clip>>({});
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [errorByItem, setErrorByItem] = useState<Record<string, string>>({});
+  const [heygenStatus, setHeygenStatus] = useState<Record<string, string>>({});
+  const [heygenVideoUrl, setHeygenVideoUrl] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchItems();
@@ -86,22 +88,68 @@ export default function QueuePage() {
     }
   }
 
+  async function generateAiVideo(itemId: string) {
+    setHeygenStatus((prev) => ({ ...prev, [itemId]: 'starting' }));
+    setErrorByItem((prev) => ({ ...prev, [itemId]: '' }));
+    try {
+      const res = await fetch('/api/heygen/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueItemId: itemId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to start generation');
+      setHeygenStatus((prev) => ({ ...prev, [itemId]: 'rendering' }));
+      pollHeygenStatus(itemId);
+    } catch (err) {
+      setHeygenStatus((prev) => ({ ...prev, [itemId]: 'failed' }));
+      setErrorByItem((prev) => ({
+        ...prev,
+        [itemId]: err instanceof Error ? err.message : 'Something went wrong',
+      }));
+    }
+  }
+
+  function pollHeygenStatus(itemId: string) {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/heygen/status?queueItemId=${itemId}`);
+        const data = await res.json();
+        if (data.status === 'completed' && data.videoUrl) {
+          setHeygenStatus((prev) => ({ ...prev, [itemId]: 'completed' }));
+          setHeygenVideoUrl((prev) => ({ ...prev, [itemId]: data.videoUrl }));
+          clearInterval(interval);
+        } else if (data.status === 'failed') {
+          setHeygenStatus((prev) => ({ ...prev, [itemId]: 'failed' }));
+          setErrorByItem((prev) => ({ ...prev, [itemId]: data.error || 'Rendering failed' }));
+          clearInterval(interval);
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    }, 10000);
+  }
+
   async function publish(item: QueueItem) {
+    const aiVideoUrl = heygenVideoUrl[item.id];
     const clip = selectedClip[item.id];
-    if (!clip || !selectedChannelId) return;
+    const videoUrlToUse = aiVideoUrl || clip?.downloadUrl;
+    if (!videoUrlToUse || !selectedChannelId) return;
 
     setPublishingId(item.id);
     setErrorByItem((prev) => ({ ...prev, [item.id]: '' }));
     try {
-      const descriptionWithCredit = `${item.description}\n\nFootage: ${clip.photographer} via Pexels (${clip.photographerUrl})`;
+      const description = aiVideoUrl
+        ? item.description
+        : `${item.description}\n\nFootage: ${clip!.photographer} via Pexels (${clip!.photographerUrl})`;
 
       const res = await fetch('/api/youtube/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoUrl: clip.downloadUrl,
+          videoUrl: videoUrlToUse,
           title: item.seo_title,
-          description: descriptionWithCredit,
+          description,
           tags: item.tags,
           channelId: selectedChannelId,
         }),
@@ -188,14 +236,36 @@ export default function QueuePage() {
             )}
             <p className="text-sm text-white/70 bg-white/5 rounded p-2 mb-3">{item.script}</p>
 
-            {!clipsByItem[item.id] && (
-              <button
-                onClick={() => findStockVideo(item)}
-                disabled={searchingId === item.id}
-                className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10 disabled:opacity-50"
-              >
-                {searchingId === item.id ? 'Searching...' : 'Find stock video'}
-              </button>
+            {!heygenVideoUrl[item.id] && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => generateAiVideo(item.id)}
+                  disabled={heygenStatus[item.id] === 'rendering' || heygenStatus[item.id] === 'starting'}
+                  className="text-sm px-3 py-1.5 bg-purple-500/20 border border-purple-500/50 text-purple-300 rounded hover:bg-purple-500/30 disabled:opacity-50"
+                >
+                  {heygenStatus[item.id] === 'rendering'
+                    ? 'Rendering AI video... (checking every 10s)'
+                    : heygenStatus[item.id] === 'starting'
+                    ? 'Starting...'
+                    : 'Generate AI video'}
+                </button>
+
+                {!clipsByItem[item.id] && (
+                  <button
+                    onClick={() => findStockVideo(item)}
+                    disabled={searchingId === item.id}
+                    className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {searchingId === item.id ? 'Searching...' : 'Or use stock footage instead'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {heygenVideoUrl[item.id] && (
+              <div className="text-sm text-purple-300 border border-purple-500/30 rounded p-2">
+                AI video ready to publish
+              </div>
             )}
 
             {errorByItem[item.id] && (
@@ -223,7 +293,7 @@ export default function QueuePage() {
               </div>
             )}
 
-            {selectedClip[item.id] && (
+            {(selectedClip[item.id] || heygenVideoUrl[item.id]) && (
               <button
                 onClick={() => publish(item)}
                 disabled={publishingId === item.id || !selectedChannelId}
@@ -254,3 +324,4 @@ export default function QueuePage() {
     </div>
   );
 }
+
