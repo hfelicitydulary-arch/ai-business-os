@@ -4,6 +4,10 @@
     {
       "path": "/api/trends/scan",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/pipeline/auto-publish",
+      "schedule": "0 9 * * *"
     }
   ]
 }
