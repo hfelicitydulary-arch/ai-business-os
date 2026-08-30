@@ -3,6 +3,7 @@ import { createAdminClient } from "../../../../lib/supabase/admin";
 import { fetchRedditTrends } from "../../../../lib/trends/reddit";
 import { fetchDevToTrends } from "../../../../lib/trends/devto";
 import { notifyFailure } from "../../../../lib/notify";
+import { startVideoGeneration } from "../../../../lib/heygen";
 
 async function sendDiscordUpdate(message: string) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -129,6 +130,10 @@ Respond ONLY in this JSON format:
 
 ${lengthInstruction}
 
+Open with a hook in the first sentence that gives someone a real reason to keep watching — a surprising fact, a concrete stake, or a clear question — not a generic "today we're talking about" opener. This directly affects watch time, which is what YouTube's algorithm rewards most.
+
+For the SEO title: front-load the most searchable, specific term. For tags: include a mix of broad category tags (e.g. "AI", "technology") and specific long-tail tags matching likely search phrases — this affects discoverability more than the video content itself.
+
 Topic: "${candidate.title}"
 Source: ${candidate.source}
 
@@ -136,8 +141,8 @@ Respond ONLY in this exact JSON format, no other text:
 {
   "script": "the spoken narration script, no stage directions",
   "seoTitle": "a specific, accurate YouTube title under 70 characters, must genuinely match the script${format === "short" ? ' — include "#Shorts" at the end' : ""}",
-  "description": "2-3 sentence YouTube description, plain text",
-  "tags": ["5-8 relevant search tags as an array of short strings"]
+  "description": "2-3 sentence YouTube description, plain text, include 1-2 relevant hashtags at the end",
+  "tags": ["8-12 relevant search tags mixing broad and specific, as an array of short strings"]
 }`;
 
     const rawText = await askClaude(scriptPrompt, 700);
@@ -170,9 +175,27 @@ Respond ONLY in this exact JSON format, no other text:
       source: candidate.source,
     });
 
-    await sendDiscordUpdate(
-      `📝 New ${format === "short" ? "Short" : "video"} draft ready: **${parsed.seoTitle}**\n💡 Why this trend: ${reason}\nAttach a video and publish from the /queue page.`
-    );
+    // Immediately kick off HeyGen rendering — no manual tap needed.
+    // A separate scheduled job (GitHub Actions) checks on this render
+    // and auto-publishes once it's done, so the whole thing runs
+    // without anyone opening the app.
+    try {
+      const videoId = await startVideoGeneration(parsed.script, format);
+      await supabase
+        .from("content_queue")
+        .update({ heygen_video_id: videoId, video_status: "rendering" })
+        .eq("id", queueItem.id);
+
+      await sendDiscordUpdate(
+        `🎬 New ${format === "short" ? "Short" : "video"} in production: **${parsed.seoTitle}**\n💡 Why this trend: ${reason}\nRendering now — will auto-publish once ready.`
+      );
+    } catch (heygenErr: any) {
+      console.error("HeyGen auto-start failed:", heygenErr);
+      await notifyFailure("HeyGen auto-generation", heygenErr.message);
+      await sendDiscordUpdate(
+        `📝 Draft ready but video generation failed to start: **${parsed.seoTitle}**\nCheck /queue to generate manually.`
+      );
+    }
 
     return NextResponse.json({ success: true, queueItem });
   } catch (err: any) {
@@ -181,4 +204,5 @@ Respond ONLY in this exact JSON format, no other text:
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
 
