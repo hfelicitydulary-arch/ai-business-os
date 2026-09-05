@@ -8,6 +8,14 @@
     {
       "path": "/api/pipeline/auto-publish",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/pipeline/auto-publish",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/pipeline/auto-publish",
+      "schedule": "0 19 * * *"
     }
   ]
 }
