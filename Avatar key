@@ -1,0 +1,10 @@
+curl -X POST "https://api.heygen.com/v3/videos" \
+  -H "x-api-key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "avatar",
+    "avatar_id": "YOUR_LOOK_ID",
+    "script": "Hello from Avatar IV.",
+    "voice_id": "YOUR_VOICE_ID",
+    "resolution": "1080p"
+  }'
