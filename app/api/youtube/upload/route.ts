@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
         categoryId: "22",
       },
       status: {
-        privacyStatus: "private",
+        privacyStatus: "public",
       },
     };
 
@@ -120,3 +120,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
