@@ -48,7 +48,7 @@ async function uploadToYoutube(
 
   const metadata = {
     snippet: { title, description, tags, categoryId: "22" },
-    status: { privacyStatus: "private" },
+    status: { privacyStatus: "public" },
   };
 
   const boundary = "AIBOS_BOUNDARY";
@@ -174,3 +174,4 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ success: true, processed, stillRendering, failed });
 }
+
