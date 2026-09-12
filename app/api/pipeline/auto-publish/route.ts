@@ -3,7 +3,7 @@ import { createAdminClient } from "../../../../lib/supabase/admin";
 import { fetchRedditTrends } from "../../../../lib/trends/reddit";
 import { fetchDevToTrends } from "../../../../lib/trends/devto";
 import { notifyFailure } from "../../../../lib/notify";
-import { startVideoGeneration } from "../../../../lib/heygen";
+/* Faceless mode: Pexels stock instead of HeyGen */
 
 function parseModelJson(raw: string): any | null {
   if (!raw) return null;
@@ -189,29 +189,57 @@ Respond ONLY in this exact JSON format, no other text:
       source: candidate.source,
     });
 
-    // Immediately kick off HeyGen rendering — no manual tap needed.
-    // A separate scheduled job (GitHub Actions) checks on this render
-    // and auto-publishes once it's done, so the whole thing runs
-    // without anyone opening the app.
+    // Faceless mode (no HeyGen): attach stock footage from Pexels
+    let stockAttached = false;
+    let stockUrl: string | null = null;
     try {
-      const videoId = await startVideoGeneration(parsed.script, format);
-      await supabase
-        .from("content_queue")
-        .update({ heygen_video_id: videoId, video_status: "rendering" })
-        .eq("id", queueItem.id);
-
-      await sendDiscordUpdate(
-        `🎬 New ${format === "short" ? "Short" : "video"} in production: **${parsed.seoTitle}**\n💡 Why this trend: ${reason}\nRendering now — will auto-publish once ready.`
-      );
-    } catch (heygenErr: any) {
-      console.error("HeyGen auto-start failed:", heygenErr);
-      await notifyFailure("HeyGen auto-generation", heygenErr.message);
-      await sendDiscordUpdate(
-        `📝 Draft ready but video generation failed to start: **${parsed.seoTitle}**\nCheck /queue to generate manually.`
-      );
+      if (process.env.PEXELS_API_KEY) {
+        const q = encodeURIComponent(
+          (parsed.seoTitle || candidate.title || "technology").split(" ").slice(0, 5).join(" ")
+        );
+        const orientation = format === "short" ? "portrait" : "landscape";
+        const pres = await fetch(
+          `https://api.pexels.com/videos/search?query=${q}&orientation=${orientation}&size=medium&per_page=4`,
+          { headers: { Authorization: process.env.PEXELS_API_KEY } }
+        );
+        if (pres.ok) {
+          const pdata = await pres.json();
+          const video = (pdata.videos || [])[0];
+          const files = video?.video_files || [];
+          const file =
+            files.find((f: any) => f.quality === "hd") ||
+            files.find((f: any) => f.quality === "sd") ||
+            files[0];
+          if (file?.link) {
+            stockUrl = file.link;
+            stockAttached = true;
+            await supabase
+              .from("content_queue")
+              .update({
+                video_url: stockUrl,
+                video_status: "stock_ready",
+              })
+              .eq("id", queueItem.id);
+          }
+        }
+      }
+    } catch (stockErr: any) {
+      console.error("Pexels stock attach failed:", stockErr);
     }
 
-    return NextResponse.json({ success: true, queueItem });
+    await sendDiscordUpdate(
+      stockAttached
+        ? `📝 Faceless draft ready: **${parsed.seoTitle}**\nStock clip attached. Add voice in CapCut (copy script from /queue), then publish.`
+        : `📝 Script ready: **${parsed.seoTitle}**\nNo stock attached — open /queue to pick footage.`
+    );
+
+    return NextResponse.json({
+      success: true,
+      queueItem,
+      stockAttached,
+      stockUrl,
+      mode: "faceless",
+    });
   } catch (err: any) {
     console.error("Auto-publish pipeline error:", err);
     await notifyFailure("Auto-publish pipeline", err.message);
