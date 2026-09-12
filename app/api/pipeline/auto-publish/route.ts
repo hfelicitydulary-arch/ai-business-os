@@ -75,11 +75,11 @@ export async function GET(req: NextRequest) {
     const usedTitles = new Set((used || []).map((u) => u.title));
 
     const NICHE_KEYWORDS = [
-      "ai", "artificial intelligence", "llm", "gpt", "claude", "openai",
-      "machine learning", "chatbot", "automation", "software", "app",
-      "coding", "developer", "programming", "startup", "saas", "tech",
-      "google", "microsoft", "apple", "meta", "api", "open source",
-      "framework", "cloud", "data", "algorithm", "robot", "chip",
+      "ai", "artificial intelligence", "chatgpt", "gpt", "claude", "openai",
+      "automation", "side hustle", "make money", "passive income", "freelance",
+      "chatbot", "no code", "nocode", "productivity", "tools", "gemini",
+      "earn", "income", "business", "startup", "saas", "solopreneur",
+      "content creation", "youtube", "tiktok", "phone", "beginner",
     ];
 
     const nicheFiltered = allTrends.filter((t) =>
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
 
     // 2. Let Claude judge which candidate is actually most video-worthy —
     // not just highest upvote score, but genuinely interesting to watch.
-    const judgePrompt = `You're picking which trending topic to turn into a video today for a small, growing YouTube channel focused on AI tools and technology explainers. Judge based on which has the most genuine hook/story potential for an audience learning about AI and tech — not just which is most upvoted.
+    const judgePrompt = `You're picking which trending topic to turn into a video today for a YouTube channel helping BROKE BEGINNERS make money with AI using only a phone. Prefer topics that can be angled into: free AI tools, side hustles, earning online, saving time/money with AI, or practical beginner workflows. Reject pure research/academic topics with no money angle.
 
 Candidates:
 ${candidates.map((c, i) => `${i}. "${c.title}" (source: ${c.source}, score: ${c.score})`).join("\n")}
@@ -138,7 +138,7 @@ Respond ONLY in this JSON format:
         ? "Write for a YouTube Short: 15-30 seconds spoken, 40-70 words, punchy, hook in the first line."
         : "Write for a standard YouTube video: 30-45 seconds spoken, 90-120 words, conversational.";
 
-    const scriptPrompt = `Create YouTube video content for an AI tools and technology explainer channel, based on this trending topic. Prioritize a genuinely specific, non-generic angle — avoid the flat, interchangeable "AI slop" tone that reads as mass-produced. Explain what it actually means for someone who uses tech day-to-day, not just industry insiders.
+    const scriptPrompt = `Create YouTube video content for a faceless channel: "Making money with AI for beginners" (audience is broke, phone-only, zero capital). Based on this trending topic, force a PRACTICAL MONEY angle: how a beginner could use this idea/tool to earn, save, get clients, create content, or build a tiny side hustle. If the topic has no honest money angle, invent the closest beginner-monetization framing that is still truthful. Avoid academic tone and generic "today we explore" openers.
 
 ${lengthInstruction}
 
