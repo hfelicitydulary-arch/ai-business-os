@@ -235,7 +235,18 @@ export default function QueuePage() {
       {loading && <p className="text-white/50">Loading...</p>}
 
       <h2 className="text-xl font-semibold mb-3">
-        Awaiting video ({awaitingItems.length})
+        Faceless mode (stock + your voice) · Awaiting video ({awaitingItems.length})
+        </h2>
+        <div className="text-xs text-white/60 mb-4 p-3 rounded-lg border border-white/10 bg-white/5">
+          <strong className="text-white/80">How to finish a video (free):</strong>
+          <ol className="list-decimal ml-4 mt-1 space-y-1">
+            <li>Copy voiceover script</li>
+            <li>Pick stock footage (or use auto-attached clip)</li>
+            <li>CapCut: paste script as Text-to-speech / record voice + add clip</li>
+            <li>Export → Upload to YouTube</li>
+          </ol>
+        </div>
+        <h2 className="hidden">
       </h2>
 
       <div className="space-y-4 mb-10">
@@ -300,7 +311,7 @@ export default function QueuePage() {
                     disabled={searchingId === item.id}
                     className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10 disabled:opacity-50"
                   >
-                    {searchingId === item.id ? 'Searching...' : 'Use stock footage + post'}
+                    {searchingId === item.id ? 'Searching...' : 'Pick stock footage'}
                   </button>
                 )}
               </div>
