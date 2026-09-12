@@ -153,6 +153,14 @@ export default function QueuePage() {
     const videoUrlToUse = aiVideoUrl || clip?.downloadUrl;
     if (!videoUrlToUse || !selectedChannelId) return;
 
+    // Stock clips are silent — confirm user added voiceover elsewhere
+    if (!aiVideoUrl && clip?.downloadUrl) {
+      const ok = window.confirm(
+        'This stock clip has NO voiceover.\n\nOnly continue if you already mixed voice in CapCut and this URL is your final video.\n\nPost silent stock video anyway?'
+      );
+      if (!ok) return;
+    }
+
     setPublishingId(item.id);
     setErrorByItem((prev) => ({ ...prev, [item.id]: '' }));
     try {
@@ -251,7 +259,26 @@ export default function QueuePage() {
             {item.selection_reason && (
               <p className="text-xs text-white/40 mb-2">💡 {item.selection_reason}</p>
             )}
-            <p className="text-sm text-white/70 bg-white/5 rounded p-2 mb-3">{cleanScriptDisplay(item.script)}</p>
+            <p className="text-sm text-white/70 bg-white/5 rounded p-2 mb-2 whitespace-pre-wrap">{cleanScriptDisplay(item.script)}</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(cleanScriptDisplay(item.script));
+                    setErrorByItem((prev) => ({ ...prev, [item.id]: 'Script copied — paste into CapCut Text-to-Speech' }));
+                  } catch {
+                    setErrorByItem((prev) => ({ ...prev, [item.id]: 'Could not copy' }));
+                  }
+                }}
+                className="text-xs px-3 py-1.5 rounded-lg border border-white/20 text-white/80 hover:border-purple-400"
+              >
+                Copy voiceover script
+              </button>
+            </div>
+            <p className="text-xs text-amber-300/90 mb-3 bg-amber-500/10 border border-amber-500/30 rounded p-2">
+              Stock footage has <strong>no voice</strong>. Copy the script → CapCut → Text-to-speech or your voice → Export → then upload the final video to YouTube.
+            </p>
 
             {!heygenVideoUrl[item.id] && (
               <div className="flex flex-wrap gap-2">
