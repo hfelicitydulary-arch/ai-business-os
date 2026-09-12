@@ -5,6 +5,20 @@ import { fetchDevToTrends } from "../../../../lib/trends/devto";
 import { notifyFailure } from "../../../../lib/notify";
 import { startVideoGeneration } from "../../../../lib/heygen";
 
+function parseModelJson(raw: string): any | null {
+  if (!raw) return null;
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+  try { return JSON.parse(text); } catch {}
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  }
+  return null;
+}
+
 async function sendDiscordUpdate(message: string) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) return;
@@ -38,10 +52,8 @@ async function askClaude(prompt: string, maxTokens: number) {
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
-  if (
-    process.env.CRON_SECRET &&
-    authHeader !== `Bearer ${process.env.CRON_SECRET}`
-  ) {
+  const cronSecret = process.env.CRON_SECRET || process.env.CRONSECRET;
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -146,11 +158,13 @@ Respond ONLY in this exact JSON format, no other text:
 }`;
 
     const rawText = await askClaude(scriptPrompt, 700);
-    let parsed;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
+    let parsed = parseModelJson(rawText);
+    if (!parsed || typeof parsed !== "object") {
       parsed = { script: rawText, seoTitle: candidate.title, description: "", tags: [] };
+    }
+    if (typeof parsed.script === "string" && parsed.script.trim().startsWith("{")) {
+      const nested = parseModelJson(parsed.script);
+      if (nested?.script) parsed = { ...parsed, ...nested };
     }
 
     // 5. Save to queue + mark trend as used
