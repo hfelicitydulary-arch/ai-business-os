@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+function parseModelJson(raw: string): any | null {
+  if (!raw) return null;
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+  try { return JSON.parse(text); } catch {}
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch {}
+  }
+  return null;
+}
+
+
 export async function POST(req: NextRequest) {
   try {
     const { title, source } = await req.json();
@@ -47,11 +62,17 @@ Respond ONLY in this exact JSON format, no other text:
     const data = await res.json();
     const rawText = data.content?.[0]?.text || "{}";
 
-    let parsed;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
+    let parsed = parseModelJson(rawText);
+    if (!parsed || typeof parsed !== "object") {
       parsed = { script: rawText, seoTitle: title, description: "", tags: [] };
+    }
+    // Ensure script is plain text, not stringified JSON
+    if (parsed.script && typeof parsed.script === "object") {
+      parsed.script = String(parsed.script);
+    }
+    if (typeof parsed.script === "string" && parsed.script.trim().startsWith("{")) {
+      const nested = parseModelJson(parsed.script);
+      if (nested?.script) parsed = { ...parsed, ...nested };
     }
 
     // Log this topic as used, so it doesn't silently get re-scripted later.
