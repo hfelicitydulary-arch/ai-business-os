@@ -1,4 +1,21 @@
 'use client';
+
+function cleanScriptDisplay(script: string): string {
+  if (!script) return '';
+  let text = script.trim();
+  // If the whole field is fenced JSON, extract script
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+  if (text.startsWith('{')) {
+    try {
+      const obj = JSON.parse(text);
+      if (obj.script) return String(obj.script);
+      if (obj.seoTitle) return String(obj.script || obj.seoTitle);
+    } catch {}
+  }
+  return script;
+}
+
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
@@ -234,7 +251,7 @@ export default function QueuePage() {
             {item.selection_reason && (
               <p className="text-xs text-white/40 mb-2">💡 {item.selection_reason}</p>
             )}
-            <p className="text-sm text-white/70 bg-white/5 rounded p-2 mb-3">{item.script}</p>
+            <p className="text-sm text-white/70 bg-white/5 rounded p-2 mb-3">{cleanScriptDisplay(item.script)}</p>
 
             {!heygenVideoUrl[item.id] && (
               <div className="flex flex-wrap gap-2">
@@ -256,7 +273,7 @@ export default function QueuePage() {
                     disabled={searchingId === item.id}
                     className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10 disabled:opacity-50"
                   >
-                    {searchingId === item.id ? 'Searching...' : 'Or use stock footage instead'}
+                    {searchingId === item.id ? 'Searching...' : 'Use stock footage + post'}
                   </button>
                 )}
               </div>
