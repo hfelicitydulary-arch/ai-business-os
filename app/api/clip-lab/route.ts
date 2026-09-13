@@ -22,10 +22,16 @@ function parseModelJson(raw: string): any | null {
 function extractYouTubeId(url: string): string | null {
   try {
     const u = new URL(url.trim());
-    if (u.hostname.includes("youtu.be")) {
-      return u.pathname.replace("/", "") || null;
+    const host = u.hostname.replace("www.", "");
+    if (host === "youtu.be") {
+      return u.pathname.split("/").filter(Boolean)[0] || null;
     }
-    if (u.hostname.includes("youtube.com")) {
+    if (host.endsWith("youtube.com")) {
+      const parts = u.pathname.split("/").filter(Boolean);
+      // /shorts/VIDEO_ID or /embed/VIDEO_ID or /live/VIDEO_ID
+      if (parts[0] === "shorts" || parts[0] === "embed" || parts[0] === "live") {
+        return parts[1] || null;
+      }
       return u.searchParams.get("v");
     }
   } catch {}
@@ -69,8 +75,18 @@ export async function POST(req: NextRequest) {
     }
 
     const videoId = extractYouTubeId(url);
-    const oembed = await fetchOEmbed(url);
-    const title = oembed?.title || body.title || "Unknown title";
+    // Normalize Shorts links for oEmbed
+    const oembedTarget =
+      videoId && url.includes("/shorts/")
+        ? `https://www.youtube.com/watch?v=${videoId}`
+        : url;
+    let oembed = null;
+    try {
+      oembed = await fetchOEmbed(oembedTarget);
+    } catch {
+      oembed = null;
+    }
+    const title = oembed?.title || body.title || (videoId ? `YouTube ${videoId}` : "Unknown title");
     const author = oembed?.author_name || "";
 
     const prompt = `You are Clip Lab — a free alternative workflow to paid tools like Viblo.
