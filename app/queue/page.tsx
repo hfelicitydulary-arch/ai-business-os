@@ -210,6 +210,7 @@ export default function QueuePage() {
     <div className="min-h-screen bg-black text-white p-6">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Content Queue</h1>
+        <Link href="/clip-lab" className="text-sm px-3 py-1.5 border border-purple-400/50 rounded hover:bg-purple-600/20">Clip Lab</Link>
         <Link href="/" className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10">
           Back to dashboard
         </Link>
