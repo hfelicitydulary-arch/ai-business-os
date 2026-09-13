@@ -5,10 +5,10 @@ function parseModelJson(raw: string): any | null {
   if (!raw) return null;
   let text = raw.trim();
 
-  // Strip common markdown wrappers
-  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) text = fence[1].trim();
+  // Strip markdown code fences
+  if (text.startsWith("```")) {
+    text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  }
 
   const attempts: string[] = [text];
   const start = text.indexOf("{");
@@ -20,15 +20,15 @@ function parseModelJson(raw: string): any | null {
   for (const candidate of attempts) {
     try {
       return JSON.parse(candidate);
-    } catch {}
-    // trailing commas / smart quotes
+    } catch {
+      // ignore
+    }
     try {
-      const cleaned = candidate
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, "'")
-        .replace(/,\s*([}\]])/g, "$1");
+      const cleaned = candidate.replace(/,\s*([}\]])/g, "$1");
       return JSON.parse(cleaned);
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
   return null;
 }
@@ -36,26 +36,28 @@ function parseModelJson(raw: string): any | null {
 function extractYouTubeId(url: string): string | null {
   try {
     const u = new URL(url.trim());
-    const host = u.hostname.replace("www.", "");
+    const host = u.hostname.replace(/^www\./, "");
     if (host === "youtu.be") {
       return u.pathname.split("/").filter(Boolean)[0] || null;
     }
     if (host.endsWith("youtube.com")) {
       const parts = u.pathname.split("/").filter(Boolean);
-      // /shorts/VIDEO_ID or /embed/VIDEO_ID or /live/VIDEO_ID
       if (parts[0] === "shorts" || parts[0] === "embed" || parts[0] === "live") {
         return parts[1] || null;
       }
       return u.searchParams.get("v");
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
   return null;
 }
 
 async function fetchOEmbed(url: string) {
-  const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
-    url
-  )}&format=json`;
+  const oembedUrl =
+    "https://www.youtube.com/oembed?url=" +
+    encodeURIComponent(url) +
+    "&format=json";
   const res = await fetch(oembedUrl);
   if (!res.ok) return null;
   return res.json();
@@ -89,18 +91,22 @@ export async function POST(req: NextRequest) {
     }
 
     const videoId = extractYouTubeId(url);
-    // Normalize Shorts links for oEmbed
     const oembedTarget =
       videoId && url.includes("/shorts/")
-        ? `https://www.youtube.com/watch?v=${videoId}`
+        ? "https://www.youtube.com/watch?v=" + videoId
         : url;
-    let oembed = null;
+
+    let oembed: any = null;
     try {
       oembed = await fetchOEmbed(oembedTarget);
     } catch {
       oembed = null;
     }
-    const title = oembed?.title || body.title || (videoId ? `YouTube ${videoId}` : "Unknown title");
+
+    const title =
+      oembed?.title ||
+      body.title ||
+      (videoId ? "YouTube " + videoId : "Unknown title");
     const author = oembed?.author_name || "";
 
     const prompt = `You are Clip Lab — a free alternative workflow to paid tools like Viblo.
@@ -113,14 +119,14 @@ SOURCE
 - Video ID: ${videoId || "unknown"}
 - Title: ${title}
 - Channel: ${author || "unknown"}
-${notes ? `- User notes: ${notes}` : ""}
+${notes ? "- User notes: " + notes : ""}
 ${
   transcript
-    ? `- Transcript / captions (may be partial):\n${transcript.slice(0, 12000)}`
+    ? "- Transcript / captions (may be partial):\n" + transcript.slice(0, 12000)
     : "- No transcript provided. Infer likely moments from the title and typical structure of this kind of video. Mark timestamps as estimates."
 }
 
-Return ONLY a raw JSON object. No markdown. No ``` fences. No commentary before or after. Shape:
+Return ONLY a raw JSON object. No markdown. No code fences. No commentary before or after. Shape:
 {
   "sourceTitle": "string",
   "angle": "one sentence: how to reuse this for a beginner AI-money or high-retention faceless channel",
@@ -131,7 +137,7 @@ Return ONLY a raw JSON object. No markdown. No ``` fences. No commentary before 
       "end": "0:30",
       "durationSec": 30,
       "hook": "first line spoken or on-screen hook",
-      "title": "YouTube Short title under 70 chars, include #Shorts if useful",
+      "title": "YouTube Short title under 70 chars",
       "captionLines": ["3-6 short caption lines for on-screen text"],
       "whyItWorks": "one sentence",
       "estimated": true
@@ -165,19 +171,22 @@ Rules:
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Claude API failed: ${res.status} ${errText}`);
+      throw new Error("Claude API failed: " + res.status + " " + errText);
     }
 
     const data = await res.json();
     const rawText = data.content?.[0]?.text || "{}";
     let parsed = parseModelJson(rawText);
+
     if (!parsed || typeof parsed !== "object") {
-      parsed = parseModelJson(rawText.replace(/```/g, ""));
+      parsed = parseModelJson(String(rawText).replace(/```/g, ""));
     }
+
     if (!parsed || typeof parsed !== "object") {
       parsed = {
         sourceTitle: title,
-        angle: "Model returned unreadable formatting. Tap Generate again — usually works on retry.",
+        angle:
+          "Model returned unreadable formatting. Tap Generate again — usually works on retry.",
         clips: [],
         descriptionTemplate: "",
         tags: [],
@@ -186,10 +195,12 @@ Rules:
           "Or paste the video transcript for cleaner results",
           "This tool builds a PLAN — CapCut still cuts the video (free Viblo-style workflow)",
         ],
-        raw: rawText.slice(0, 1500),
       };
     }
-    if (!Array.isArray(parsed.clips)) parsed.clips = [];
+
+    if (!Array.isArray(parsed.clips)) {
+      parsed.clips = [];
+    }
 
     return NextResponse.json({
       success: true,
