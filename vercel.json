@@ -19,7 +19,7 @@
     },
     {
       "path": "/api/clip-lab/process",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
