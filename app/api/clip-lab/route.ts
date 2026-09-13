@@ -73,9 +73,7 @@ async function fetchYoutubeCaptions(videoId: string): Promise<string> {
     // Find caption track URLs from ytInitialPlayerResponse
     const langPrefs = ["en", "en-US", "en-GB", "a.en"];
     const trackMatches = [
-      ...html.matchAll(
-        /"captionTracks":(\[.*?\])/s
-      ),
+      ...html.matchAll(/"captionTracks":(\[[\s\S]*?\])/g),
     ];
     let tracks: any[] = [];
     if (trackMatches[0]) {
