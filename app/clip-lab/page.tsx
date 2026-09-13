@@ -48,7 +48,13 @@ export default function ClipLabPage() {
       setPlan(data.plan);
       setSourceTitle(data.source?.title || data.plan?.sourceTitle || '');
     } catch (e: any) {
-      setError(e.message || 'Something went wrong');
+      const msg = e?.message || String(e) || 'Something went wrong';
+      // iOS often shows "Load failed" for network/404/CORS — give actionable text
+      if (/load failed|failed to fetch|networkerror/i.test(msg)) {
+        setError('Load failed: could not reach Clip Lab API. Stay logged in, hard-refresh, and try a full youtube.com URL. If it keeps failing, the deploy may still be updating.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
