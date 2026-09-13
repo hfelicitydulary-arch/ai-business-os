@@ -76,7 +76,7 @@ export default function ClipLabPage() {
       if (!res.ok) throw new Error(data.error || 'Queue failed');
       setQueueMsg(data.message || 'Queued. You can leave the app.');
       // kick process (best-effort; cron will also run)
-      fetch('/api/clip-lab/process').catch(() => {});
+      fetch('/api/clip-lab/process-mine', { method: 'POST' }).catch(() => {});
       loadJobs();
     } catch (e: any) {
       setError(e.message || 'Queue failed');
