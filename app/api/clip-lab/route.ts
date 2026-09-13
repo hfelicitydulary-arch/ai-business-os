@@ -124,7 +124,7 @@ ${
 }
 
 TASK
-Write ORIGINAL scripts the creator can film in THEIR own style (screen recording, voiceover, stock, CapCut). Same core ideas/message as the source — not a word-for-word steal, not a copy of someone else's delivery.
+Write ORIGINAL scripts (same core ideas, different words). Be concise. Prefer speed and clarity.
 
 Return ONLY a raw JSON object. No markdown. No code fences. No text outside JSON.
 
@@ -148,7 +148,7 @@ Return ONLY a raw JSON object. No markdown. No code fences. No text outside JSON
 
 Rules:
 - longScript must stand alone for a full video.
-- Give 3 to 5 shortScripts max, each one idea.
+- Give exactly 3 shortScripts max, each one idea. Keep longScript under ~350 words.
 - Same meaning/points as source; different words and structure.
 - If transcript is missing, keep claims general and avoid inventing fake stats.
 - Do not output copyrighted lyrics or long verbatim quotes.`;
@@ -162,7 +162,7 @@ Rules:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 3500,
+        max_tokens: 1600,
         messages: [{ role: "user", content: prompt }],
       }),
     });
