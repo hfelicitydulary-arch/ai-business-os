@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 function parseModelJson(raw: string): any | null {
   if (!raw) return null;
   let text = raw.trim();
@@ -10,19 +13,17 @@ function parseModelJson(raw: string): any | null {
   const attempts: string[] = [text];
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start !== -1 && end > start) {
-    attempts.push(text.slice(start, end + 1));
-  }
+  if (start !== -1 && end > start) attempts.push(text.slice(start, end + 1));
   for (const candidate of attempts) {
     try {
       return JSON.parse(candidate);
     } catch {
-      // ignore
+      /* ignore */
     }
     try {
       return JSON.parse(candidate.replace(/,\s*([}\]])/g, "$1"));
     } catch {
-      // ignore
+      /* ignore */
     }
   }
   return null;
@@ -43,7 +44,7 @@ function extractYouTubeId(url: string): string | null {
       return u.searchParams.get("v");
     }
   } catch {
-    // ignore
+    /* ignore */
   }
   return null;
 }
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json({ error: "Not authenticated — log in again" }, { status: 401 });
     }
 
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -80,8 +81,6 @@ export async function POST(req: NextRequest) {
     const url = (body.url || "").trim();
     const transcript = (body.transcript || "").trim();
     const notes = (body.notes || "").trim();
-    // "script" = full retell script (default). "clips" = old clip-plan mode
-    const mode = (body.mode || "script").trim();
 
     if (!url) {
       return NextResponse.json({ error: "url is required" }, { status: 400 });
@@ -106,52 +105,32 @@ export async function POST(req: NextRequest) {
       (videoId ? "YouTube " + videoId : "Unknown title");
     const author = oembed?.author_name || "";
 
-    const prompt = `You are Clip Lab Script Writer for a faceless YouTube channel.
+    const prompt = `Write original YouTube scripts from this source. Same core ideas, different words. Niche when relevant: AI money for beginners, phone-only.
 
-Niche: Making money with AI for beginners (phone-only, zero capital) — use this angle when it fits, without forcing it if the source is unrelated.
-
-SOURCE VIDEO
-- URL: ${url}
-- Video ID: ${videoId || "unknown"}
-- Title: ${title}
-- Channel: ${author || "unknown"}
-${notes ? "- User notes: " + notes : ""}
+SOURCE title: ${title}
+Channel: ${author || "unknown"}
+URL: ${url}
+${notes ? "Notes: " + notes : ""}
 ${
   transcript
-    ? "- Transcript / captions (use this as the factual base):\n" +
-      transcript.slice(0, 14000)
-    : "- No transcript provided. Infer the likely points from the title and typical content of this kind of video. Be honest that some details are inferred."
+    ? "Transcript:\n" + transcript.slice(0, 8000)
+    : "No transcript — infer carefully from title; avoid fake stats."
 }
 
-TASK
-Write ORIGINAL scripts (same core ideas, different words). Be concise. Prefer speed and clarity.
-
-Return ONLY a raw JSON object. No markdown. No code fences. No text outside JSON.
-
+Return ONLY raw JSON (no markdown):
 {
   "sourceTitle": "string",
-  "summary": "3-5 sentences: what the video is about and the main claims/points",
-  "longScript": "A full spoken narration for a LONG video (about 2-4 minutes spoken, clear sections, conversational). Cover the same main points as the source. No stage directions.",
+  "summary": "2-3 sentences",
+  "longScript": "spoken long-form narration ~200-350 words, conversational",
   "shortScripts": [
-    {
-      "rank": 1,
-      "title": "Shorts title under 70 chars",
-      "hook": "first line",
-      "script": "30-50 second spoken script on ONE point from the video",
-      "captionLines": ["short on-screen lines"]
-    }
+    {"rank":1,"title":"Shorts title","hook":"first line","script":"35-50s spoken","captionLines":["line1","line2"]}
   ],
-  "description": "YouTube description for the long video",
-  "tags": ["8-12 tags"],
-  "filmingTips": ["3-6 tips to film this on iPhone with CapCut, original footage only"]
+  "description": "YouTube description",
+  "tags": ["tag1","tag2"],
+  "filmingTips": ["tip1","tip2"]
 }
 
-Rules:
-- longScript must stand alone for a full video.
-- Give exactly 3 shortScripts max, each one idea. Keep longScript under ~350 words.
-- Same meaning/points as source; different words and structure.
-- If transcript is missing, keep claims general and avoid inventing fake stats.
-- Do not output copyrighted lyrics or long verbatim quotes.`;
+Exactly 3 shortScripts. Be concise.`;
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -162,14 +141,14 @@ Rules:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 1600,
+        max_tokens: 1200,
         messages: [{ role: "user", content: prompt }],
       }),
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error("Claude API failed: " + res.status + " " + errText);
+      throw new Error("Claude API failed: " + res.status + " " + errText.slice(0, 300));
     }
 
     const data = await res.json();
@@ -178,35 +157,18 @@ Rules:
     if (!parsed || typeof parsed !== "object") {
       parsed = parseModelJson(String(rawText).replace(/```/g, ""));
     }
-
     if (!parsed || typeof parsed !== "object") {
-      return NextResponse.json({
-        success: true,
-        source: { url, videoId, title, author },
-        plan: {
-          sourceTitle: title,
-          summary: "Could not parse model output. Tap Generate again.",
-          longScript: "",
-          shortScripts: [],
-          description: "",
-          tags: [],
-          filmingTips: ["Try again", "Paste transcript for better accuracy"],
-          mode,
-        },
-      });
+      parsed = {
+        sourceTitle: title,
+        summary: "Parse failed — tap Generate again.",
+        longScript: "",
+        shortScripts: [],
+        description: "",
+        tags: [],
+        filmingTips: ["Try again", "Paste transcript for accuracy"],
+      };
     }
-
     if (!Array.isArray(parsed.shortScripts)) parsed.shortScripts = [];
-    // backward compat if model still returns clips
-    if (!parsed.longScript && Array.isArray(parsed.clips)) {
-      parsed.shortScripts = parsed.clips.map((c: any, i: number) => ({
-        rank: c.rank || i + 1,
-        title: c.title,
-        hook: c.hook,
-        script: (c.captionLines || []).join(". "),
-        captionLines: c.captionLines || [],
-      }));
-    }
 
     return NextResponse.json({
       success: true,
