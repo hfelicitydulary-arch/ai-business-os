@@ -13,6 +13,7 @@ type ShortScript = {
 
 type Plan = {
   sourceTitle?: string;
+  contentBreakdown?: string;
   summary?: string;
   longScript?: string;
   shortScripts?: ShortScript[];
@@ -22,11 +23,13 @@ type Plan = {
 };
 
 const STORAGE_KEY = 'clip_lab_last_result_v1';
+const NICHE_KEY = 'clip_lab_niche_v1';
 
 export default function ClipLabPage() {
   const [url, setUrl] = useState('');
   const [transcript, setTranscript] = useState('');
   const [notes, setNotes] = useState('');
+  const [niche, setNiche] = useState('Making money with AI for beginners');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -48,6 +51,8 @@ export default function ClipLabPage() {
 
   useEffect(() => {
     try {
+      const n = localStorage.getItem(NICHE_KEY);
+      if (n) setNiche(n);
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
@@ -70,7 +75,7 @@ export default function ClipLabPage() {
       const res = await fetch('/api/clip-lab/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, transcript, notes }),
+        body: JSON.stringify({ url, transcript, notes, niche }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Queue failed');
@@ -106,7 +111,7 @@ export default function ClipLabPage() {
       const res = await fetch('/api/clip-lab', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, transcript, notes, mode: 'script' }),
+        body: JSON.stringify({ url, transcript, notes, niche, mode: 'script' }),
         // help some browsers keep the request alive longer
         keepalive: true,
       });
@@ -178,6 +183,17 @@ export default function ClipLabPage() {
         </div>
 
         <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3 mb-6">
+          <label className="block text-xs text-white/50">Your channel niche (each user sets their own)</label>
+          <input
+            value={niche}
+            onChange={(e) => {
+              setNiche(e.target.value);
+              try { localStorage.setItem(NICHE_KEY, e.target.value); } catch {}
+            }}
+            placeholder="e.g. fitness for beginners, cooking, AI money, tech reviews..."
+            className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500"
+          />
+
           <label className="block text-xs text-white/50">Video URL</label>
           <input
             value={url}
@@ -187,7 +203,7 @@ export default function ClipLabPage() {
           />
 
           <label className="block text-xs text-white/50">
-            Optional: paste transcript (more accurate)
+            Optional: paste transcript (better meaning accuracy)
           </label>
           <textarea
             value={transcript}
@@ -291,6 +307,12 @@ export default function ClipLabPage() {
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <div className="text-xs text-white/50 mb-1">Source</div>
               <div className="font-medium">{sourceTitle || plan.sourceTitle}</div>
+              {plan.contentBreakdown && (
+                <p className="text-sm text-white/80 mt-2 whitespace-pre-wrap">
+                  <span className="text-white/50 text-xs block mb-1">What this video is about</span>
+                  {plan.contentBreakdown}
+                </p>
+              )}
               {plan.summary && (
                 <p className="text-sm text-white/70 mt-2 whitespace-pre-wrap">{plan.summary}</p>
               )}
