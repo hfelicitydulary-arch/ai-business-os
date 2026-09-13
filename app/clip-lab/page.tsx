@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 
 type ShortScript = {
@@ -21,6 +21,8 @@ type Plan = {
   filmingTips?: string[];
 };
 
+const STORAGE_KEY = 'clip_lab_last_result_v1';
+
 export default function ClipLabPage() {
   const [url, setUrl] = useState('');
   const [transcript, setTranscript] = useState('');
@@ -29,26 +31,82 @@ export default function ClipLabPage() {
   const [error, setError] = useState('');
   const [plan, setPlan] = useState<Plan | null>(null);
   const [sourceTitle, setSourceTitle] = useState('');
+  const [keepOpenWarn, setKeepOpenWarn] = useState(false);
+  const loadingRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved?.plan) {
+          setPlan(saved.plan);
+          setSourceTitle(saved.sourceTitle || '');
+          setUrl(saved.url || '');
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden && loadingRef.current) {
+        setKeepOpenWarn(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
   async function generate() {
     setLoading(true);
     setError('');
+    setKeepOpenWarn(false);
     setPlan(null);
     try {
       const res = await fetch('/api/clip-lab', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, transcript, notes, mode: 'script' }),
+        // help some browsers keep the request alive longer
+        keepalive: true,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(
+          res.status === 504 || res.status === 408
+            ? 'Server timed out. Keep this screen open and try again.'
+            : 'Bad response from server (' + res.status + '). Try again.'
+        );
+      }
+
+      if (!res.ok) throw new Error(data.error || 'Failed (' + res.status + ')');
+
       setPlan(data.plan);
-      setSourceTitle(data.source?.title || data.plan?.sourceTitle || '');
+      const st = data.source?.title || data.plan?.sourceTitle || '';
+      setSourceTitle(st);
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ plan: data.plan, sourceTitle: st, url, savedAt: Date.now() })
+        );
+      } catch {
+        /* ignore */
+      }
     } catch (e: any) {
       const msg = e?.message || String(e) || 'Something went wrong';
-      if (/load failed|failed to fetch|networkerror/i.test(msg)) {
+      if (/load failed|failed to fetch|networkerror|aborted/i.test(msg)) {
         setError(
-          'Load failed: could not reach API. Stay logged in, hard-refresh, try again.'
+          'Request interrupted. On iPhone, staying in this screen until it finishes works best. If you switched apps, tap Generate again — keep Clip Lab open.'
         );
       } else {
         setError(msg);
@@ -62,7 +120,7 @@ export default function ClipLabPage() {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      // ignore
+      /* ignore */
     }
   }
 
@@ -73,20 +131,14 @@ export default function ClipLabPage() {
           <div>
             <h1 className="text-3xl font-bold">Clip Lab</h1>
             <p className="text-sm text-white/60 mt-1">
-              Paste a link → get a full original script (same points) for YOUR video
+              Paste a link → full original script for YOUR video
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Link
-              href="/queue"
-              className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10"
-            >
+            <Link href="/queue" className="text-sm px-3 py-1.5 border border-white/30 rounded">
               Queue
             </Link>
-            <Link
-              href="/"
-              className="text-sm px-3 py-1.5 border border-white/30 rounded hover:bg-white/10"
-            >
+            <Link href="/" className="text-sm px-3 py-1.5 border border-white/30 rounded">
               Dashboard
             </Link>
           </div>
@@ -102,13 +154,13 @@ export default function ClipLabPage() {
           />
 
           <label className="block text-xs text-white/50">
-            Optional but recommended: paste captions / transcript (more accurate script)
+            Optional: paste transcript (more accurate)
           </label>
           <textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            rows={5}
-            placeholder="Paste YouTube transcript so the script matches what the video actually says..."
+            rows={4}
+            placeholder="Paste YouTube transcript..."
             className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500"
           />
 
@@ -116,7 +168,7 @@ export default function ClipLabPage() {
           <input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. make it for broke beginners, phone only"
+            placeholder="e.g. broke beginners, phone only"
             className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500"
           />
 
@@ -125,12 +177,24 @@ export default function ClipLabPage() {
             disabled={loading || !url.trim()}
             className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-sm font-medium"
           >
-            {loading ? 'Writing scripts...' : 'Generate full script'}
+            {loading ? 'Writing scripts... keep this screen open' : 'Generate full script'}
           </button>
 
+          {loading && (
+            <p className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded p-2">
+              Keep Clip Lab open until it finishes. Switching apps on iPhone can cancel the
+              request — that causes &quot;Load failed&quot;.
+            </p>
+          )}
+
+          {keepOpenWarn && loading && (
+            <p className="text-xs text-red-200">
+              You left the app while generating. Come back and wait, or tap Generate again.
+            </p>
+          )}
+
           <p className="text-xs text-white/50">
-            Output is an original script covering the same ideas — you film in your own style
-            (screen record, voiceover, CapCut). Not a finished MP4 export.
+            Last result is saved on this phone so you can leave after it completes.
           </p>
         </div>
 
@@ -173,18 +237,13 @@ export default function ClipLabPage() {
                 <h3 className="font-semibold mb-1">{s.title}</h3>
                 <p className="text-sm text-purple-200 mb-2">Hook: {s.hook}</p>
                 <p className="text-sm text-white/80 whitespace-pre-wrap mb-2">{s.script}</p>
-                {s.captionLines && s.captionLines.length > 0 && (
-                  <div className="text-xs bg-black/40 rounded p-2 mb-3 text-white/60 whitespace-pre-wrap">
-                    {s.captionLines.join('\n')}
-                  </div>
-                )}
                 <button
                   onClick={() =>
                     copyText(
                       `${s.title}\n\nHook: ${s.hook}\n\n${s.script}\n\n${(s.captionLines || []).join('\n')}`
                     )
                   }
-                  className="text-xs px-3 py-1.5 rounded border border-white/20 hover:border-purple-400"
+                  className="text-xs px-3 py-1.5 rounded border border-white/20"
                 >
                   Copy short pack
                 </button>
@@ -193,7 +252,7 @@ export default function ClipLabPage() {
 
             {plan.description && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex justify-between mb-2">
                   <div className="text-sm font-medium">Description</div>
                   <button
                     onClick={() => copyText(plan.description || '')}
@@ -203,32 +262,6 @@ export default function ClipLabPage() {
                   </button>
                 </div>
                 <p className="text-sm text-white/70 whitespace-pre-wrap">{plan.description}</p>
-              </div>
-            )}
-
-            {plan.tags && plan.tags.length > 0 && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-medium">Tags</div>
-                  <button
-                    onClick={() => copyText((plan.tags || []).join(', '))}
-                    className="text-xs px-3 py-1.5 rounded border border-white/20"
-                  >
-                    Copy tags
-                  </button>
-                </div>
-                <p className="text-xs text-white/60">{plan.tags.join(', ')}</p>
-              </div>
-            )}
-
-            {plan.filmingTips && plan.filmingTips.length > 0 && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                <div className="text-sm font-medium text-amber-100 mb-2">Filming tips</div>
-                <ol className="list-decimal ml-4 text-sm text-white/80 space-y-1">
-                  {plan.filmingTips.map((tip, i) => (
-                    <li key={i}>{tip}</li>
-                  ))}
-                </ol>
               </div>
             )}
           </div>
