@@ -1,0 +1,168 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+
+function parseModelJson(raw: string): any | null {
+  if (!raw) return null;
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+  try {
+    return JSON.parse(text);
+  } catch {}
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch {}
+  }
+  return null;
+}
+
+function extractYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url.trim());
+    if (u.hostname.includes("youtu.be")) {
+      return u.pathname.replace("/", "") || null;
+    }
+    if (u.hostname.includes("youtube.com")) {
+      return u.searchParams.get("v");
+    }
+  } catch {}
+  return null;
+}
+
+async function fetchOEmbed(url: string) {
+  const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+    url
+  )}&format=json`;
+  const res = await fetch(oembedUrl);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: "ANTHROPIC_API_KEY not configured" },
+        { status: 500 }
+      );
+    }
+
+    const body = await req.json();
+    const url = (body.url || "").trim();
+    const transcript = (body.transcript || "").trim();
+    const notes = (body.notes || "").trim();
+
+    if (!url) {
+      return NextResponse.json({ error: "url is required" }, { status: 400 });
+    }
+
+    const videoId = extractYouTubeId(url);
+    const oembed = await fetchOEmbed(url);
+    const title = oembed?.title || body.title || "Unknown title";
+    const author = oembed?.author_name || "";
+
+    const prompt = `You are Clip Lab — a free alternative workflow to paid tools like Viblo.
+
+The user will turn a SOURCE video into short vertical clips for YouTube Shorts / TikTok.
+Niche focus: Making money with AI for beginners (phone-only, zero capital) when possible — but still extract the strongest moments from THIS video.
+
+SOURCE
+- URL: ${url}
+- Video ID: ${videoId || "unknown"}
+- Title: ${title}
+- Channel: ${author || "unknown"}
+${notes ? `- User notes: ${notes}` : ""}
+${
+  transcript
+    ? `- Transcript / captions (may be partial):\n${transcript.slice(0, 12000)}`
+    : "- No transcript provided. Infer likely moments from the title and typical structure of this kind of video. Mark timestamps as estimates."
+}
+
+Return ONLY valid JSON (no markdown) with this shape:
+{
+  "sourceTitle": "string",
+  "angle": "one sentence: how to reuse this for a beginner AI-money or high-retention faceless channel",
+  "clips": [
+    {
+      "rank": 1,
+      "start": "0:00",
+      "end": "0:30",
+      "durationSec": 30,
+      "hook": "first line spoken or on-screen hook",
+      "title": "YouTube Short title under 70 chars, include #Shorts if useful",
+      "captionLines": ["3-6 short caption lines for on-screen text"],
+      "whyItWorks": "one sentence",
+      "estimated": true
+    }
+  ],
+  "descriptionTemplate": "YouTube description template with CTA",
+  "tags": ["8-12 tags"],
+  "capcutSteps": ["3-6 practical steps to cut this in CapCut on iPhone"]
+}
+
+Rules:
+- Propose 4 to 7 clips max.
+- Prefer 15-45 second clips.
+- If no transcript, set estimated:true and still give useful start/end guesses.
+- Do not encourage copyright abuse; frame as commentary, reaction structure, or educational reuse where relevant.
+- Strong hooks first.`;
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY!,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Claude API failed: ${res.status} ${errText}`);
+    }
+
+    const data = await res.json();
+    const rawText = data.content?.[0]?.text || "{}";
+    let parsed = parseModelJson(rawText);
+    if (!parsed || typeof parsed !== "object") {
+      parsed = {
+        sourceTitle: title,
+        angle: "Could not parse model output",
+        clips: [],
+        descriptionTemplate: rawText.slice(0, 500),
+        tags: [],
+        capcutSteps: ["Paste transcript and try again"],
+        raw: rawText,
+      };
+    }
+
+    return NextResponse.json({
+      success: true,
+      source: { url, videoId, title, author },
+      plan: parsed,
+    });
+  } catch (err: any) {
+    console.error("Clip Lab error:", err);
+    return NextResponse.json(
+      { error: err.message || "Clip Lab failed" },
+      { status: 500 }
+    );
+  }
+}
