@@ -32,7 +32,19 @@ export default function ClipLabPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [sourceTitle, setSourceTitle] = useState('');
   const [keepOpenWarn, setKeepOpenWarn] = useState(false);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [queueMsg, setQueueMsg] = useState('');
   const loadingRef = useRef(false);
+
+  async function loadJobs() {
+    try {
+      const res = await fetch('/api/clip-lab/jobs');
+      const data = await res.json();
+      if (data.jobs) setJobs(data.jobs);
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
     try {
@@ -48,7 +60,28 @@ export default function ClipLabPage() {
     } catch {
       /* ignore */
     }
+    loadJobs();
   }, []);
+
+  async function queueForLater() {
+    setQueueMsg('');
+    setError('');
+    try {
+      const res = await fetch('/api/clip-lab/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, transcript, notes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Queue failed');
+      setQueueMsg(data.message || 'Queued. You can leave the app.');
+      // kick process (best-effort; cron will also run)
+      fetch('/api/clip-lab/process').catch(() => {});
+      loadJobs();
+    } catch (e: any) {
+      setError(e.message || 'Queue failed');
+    }
+  }
 
   useEffect(() => {
     loadingRef.current = loading;
@@ -177,8 +210,22 @@ export default function ClipLabPage() {
             disabled={loading || !url.trim()}
             className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-sm font-medium"
           >
-            {loading ? 'Writing scripts... keep this screen open' : 'Generate full script'}
+            {loading ? 'Writing scripts... keep this screen open' : 'Generate full script (now)'}
           </button>
+
+          <button
+            onClick={queueForLater}
+            disabled={!url.trim() || loading}
+            className="w-full md:w-auto px-5 py-2.5 rounded-lg border border-purple-400/50 text-sm font-medium hover:bg-purple-600/20 disabled:opacity-40 ml-0 md:ml-2"
+          >
+            Queue link & leave (generates offline)
+          </button>
+
+          {queueMsg && (
+            <p className="text-xs text-green-300 bg-green-500/10 border border-green-500/30 rounded p-2">
+              {queueMsg}
+            </p>
+          )}
 
           {loading && (
             <p className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded p-2">
@@ -201,6 +248,41 @@ export default function ClipLabPage() {
         {error && (
           <div className="mb-4 text-sm text-red-300 border border-red-500/30 bg-red-500/10 rounded-lg p-3">
             {error}
+          </div>
+        )}
+
+        {jobs.length > 0 && (
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-medium">Your jobs (works while offline)</div>
+              <button onClick={loadJobs} className="text-xs px-2 py-1 border border-white/20 rounded">
+                Refresh
+              </button>
+            </div>
+            <div className="space-y-2">
+              {jobs.map((j) => (
+                <div key={j.id} className="text-xs border border-white/10 rounded p-2">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-white/80 truncate">{j.source_title || j.url}</span>
+                    <span className="shrink-0 text-white/50">{j.status}</span>
+                  </div>
+                  {j.status === 'done' && j.result && (
+                    <button
+                      className="mt-1 text-purple-300 underline"
+                      onClick={() => {
+                        setPlan(j.result);
+                        setSourceTitle(j.source_title || '');
+                      }}
+                    >
+                      Open script
+                    </button>
+                  )}
+                  {j.status === 'failed' && (
+                    <p className="text-red-300 mt-1">{j.error}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
