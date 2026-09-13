@@ -34,6 +34,7 @@ export default function ClipLabPage() {
   const [error, setError] = useState('');
   const [plan, setPlan] = useState<Plan | null>(null);
   const [sourceTitle, setSourceTitle] = useState('');
+  const [captionSource, setCaptionSource] = useState('');
   const [keepOpenWarn, setKeepOpenWarn] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
   const [queueMsg, setQueueMsg] = useState('');
@@ -132,6 +133,7 @@ export default function ClipLabPage() {
       setPlan(data.plan);
       const st = data.source?.title || data.plan?.sourceTitle || '';
       setSourceTitle(st);
+      setCaptionSource(data.captionSource || '');
       try {
         localStorage.setItem(
           STORAGE_KEY,
@@ -307,6 +309,16 @@ export default function ClipLabPage() {
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <div className="text-xs text-white/50 mb-1">Source</div>
               <div className="font-medium">{sourceTitle || plan.sourceTitle}</div>
+              {captionSource && captionSource !== 'none' && (
+                <p className="text-xs text-green-300/90 mt-1">
+                  Captions: {captionSource === 'auto' ? 'auto-fetched from YouTube' : 'from your paste'}
+                </p>
+              )}
+              {captionSource === 'none' && (
+                <p className="text-xs text-amber-200/90 mt-1">
+                  No captions found — paste transcript for stronger capture
+                </p>
+              )}
               {plan.contentBreakdown && (
                 <p className="text-sm text-white/80 mt-2 whitespace-pre-wrap">
                   <span className="text-white/50 text-xs block mb-1">What this video is about</span>
