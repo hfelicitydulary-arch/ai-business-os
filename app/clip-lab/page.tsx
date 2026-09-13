@@ -38,6 +38,7 @@ export default function ClipLabPage() {
   const [keepOpenWarn, setKeepOpenWarn] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
   const [queueMsg, setQueueMsg] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
   const loadingRef = useRef(false);
 
   async function loadJobs() {
@@ -156,11 +157,31 @@ export default function ClipLabPage() {
     }
   }
 
-  async function copyText(text: string) {
+  async function copyText(text: string, label = 'Copied') {
+    if (!text) {
+      setCopyStatus('Nothing to copy');
+      setTimeout(() => setCopyStatus(''), 2000);
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopyStatus(label + ' ✓');
+      setTimeout(() => setCopyStatus(''), 2500);
     } catch {
-      /* ignore */
+      setCopyStatus('Copy failed — long-press and copy manually');
+      setTimeout(() => setCopyStatus(''), 3000);
     }
   }
 
@@ -263,6 +284,12 @@ export default function ClipLabPage() {
           </p>
         </div>
 
+        {copyStatus && (
+          <div className="mb-4 text-sm text-green-200 border border-green-500/40 bg-green-500/15 rounded-lg p-3 sticky top-2 z-20">
+            {copyStatus}
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 text-sm text-red-300 border border-red-500/30 bg-red-500/10 rounded-lg p-3">
             {error}
@@ -335,7 +362,7 @@ export default function ClipLabPage() {
                 <div className="flex items-center justify-between mb-2 gap-2">
                   <div className="text-sm font-medium">Long video script</div>
                   <button
-                    onClick={() => copyText(plan.longScript || '')}
+                    onClick={() => copyText(plan.longScript || '', 'Long script copied')}
                     className="text-xs px-3 py-1.5 rounded bg-purple-600"
                   >
                     Copy long script
@@ -356,7 +383,8 @@ export default function ClipLabPage() {
                 <button
                   onClick={() =>
                     copyText(
-                      `${s.title}\n\nHook: ${s.hook}\n\n${s.script}\n\n${(s.captionLines || []).join('\n')}`
+                      `${s.title}\n\nHook: ${s.hook}\n\n${s.script}\n\n${(s.captionLines || []).join('\n')}`,
+                      'Short pack copied'
                     )
                   }
                   className="text-xs px-3 py-1.5 rounded border border-white/20"
@@ -371,7 +399,7 @@ export default function ClipLabPage() {
                 <div className="flex justify-between mb-2">
                   <div className="text-sm font-medium">Description</div>
                   <button
-                    onClick={() => copyText(plan.description || '')}
+                    onClick={() => copyText(plan.description || '', 'Description copied')}
                     className="text-xs px-3 py-1.5 rounded border border-white/20"
                   >
                     Copy
