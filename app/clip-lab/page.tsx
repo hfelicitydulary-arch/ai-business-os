@@ -73,7 +73,7 @@ export default function ClipLabPage() {
           <div>
             <h1 className="text-3xl font-bold">Clip Lab</h1>
             <p className="text-sm text-white/60 mt-1">
-              Free Viblo-style workflow: paste a link → get clip plan (no $25/mo)
+              Free clip planner (not full Viblo render): paste link → titles, times, captions
             </p>
           </div>
           <div className="flex gap-2">
@@ -122,7 +122,7 @@ export default function ClipLabPage() {
 
           <p className="text-xs text-amber-200/80">
             Only reuse content you have rights to use (your videos, licensed, or careful commentary).
-            This tool plans clips — you still cut in CapCut (free).
+            This does NOT export a finished video file like paid Viblo. It plans clips — you cut in CapCut (free), then post.
           </p>
         </div>
 
