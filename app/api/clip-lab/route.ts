@@ -57,6 +57,119 @@ async function fetchOEmbed(url: string) {
   return res.json();
 }
 
+/** Best-effort public captions fetch (many videos work; some block). */
+async function fetchYoutubeCaptions(videoId: string): Promise<string> {
+  try {
+    const watchRes = await fetch("https://www.youtube.com/watch?v=" + videoId, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+    if (!watchRes.ok) return "";
+    const html = await watchRes.text();
+
+    // Find caption track URLs from ytInitialPlayerResponse
+    const langPrefs = ["en", "en-US", "en-GB", "a.en"];
+    const trackMatches = [
+      ...html.matchAll(
+        /"captionTracks":(\[.*?\])/s
+      ),
+    ];
+    let tracks: any[] = [];
+    if (trackMatches[0]) {
+      try {
+        tracks = JSON.parse(trackMatches[0][1]);
+      } catch {
+        tracks = [];
+      }
+    }
+
+    if (!tracks.length) {
+      // alternate escaped form
+      const m = html.match(/captionTracks\\":(\[.*?\])/);
+      if (m) {
+        try {
+          const unescaped = m[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+          tracks = JSON.parse(unescaped);
+        } catch {
+          tracks = [];
+        }
+      }
+    }
+
+    if (!tracks.length) return "";
+
+    let track =
+      tracks.find((t) => langPrefs.includes(t.languageCode)) ||
+      tracks.find((t) => (t.languageCode || "").startsWith("en")) ||
+      tracks[0];
+
+    const baseUrl = track?.baseUrl;
+    if (!baseUrl) return "";
+
+    const capRes = await fetch(baseUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    if (!capRes.ok) return "";
+    const xml = await capRes.text();
+
+    // Extract text from <text ...>...</text>
+    const parts: string[] = [];
+    const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml))) {
+      const decoded = m[1]
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/<[^>]+>/g, "")
+        .trim();
+      if (decoded) parts.push(decoded);
+    }
+    return parts.join(" ").replace(/\s+/g, " ").trim().slice(0, 12000);
+  } catch {
+    return "";
+  }
+}
+
+function fallbackPlanFromRaw(title: string, raw: string) {
+  // If model returned prose, use it as longScript
+  const cleaned = raw
+    .replace(/^```[\s\S]*?```/m, "")
+    .replace(/```/g, "")
+    .trim();
+  return {
+    sourceTitle: title,
+    contentBreakdown:
+      "Automatic structure failed; raw model text is provided as the long script. Generate again if needed.",
+    summary: "See long script below.",
+    longScript: cleaned.slice(0, 4000) || "Generation failed. Please try again.",
+    shortScripts: [
+      {
+        rank: 1,
+        title: title.slice(0, 60),
+        hook: "Here's what actually matters from this topic.",
+        script: cleaned.slice(0, 600),
+        captionLines: ["Key takeaway", "Watch this", "Try it yourself"],
+      },
+    ],
+    description: title,
+    tags: ["youtube", "tutorial", "tips"],
+    filmingTips: [
+      "Screen-record the tool or topic on your phone",
+      "Read the long script as voiceover in CapCut",
+      "Add big captions for the first 3 seconds",
+    ],
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = createClient();
@@ -74,11 +187,11 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const url = (body.url || "").trim();
-    const transcript = (body.transcript || "").trim();
+    let transcript = (body.transcript || "").trim();
     const notes = (body.notes || "").trim();
     const niche =
       (body.niche || "").trim() ||
-      "General educational / faceless YouTube (match the source topic)";
+      "General educational faceless YouTube — match the source topic";
 
     if (!url) {
       return NextResponse.json({ error: "url is required" }, { status: 400 });
@@ -101,49 +214,50 @@ export async function POST(req: NextRequest) {
       oembed?.title || body.title || (videoId ? "YouTube " + videoId : "Unknown title");
     const author = oembed?.author_name || "";
 
-    const prompt = `You are a scriptwriter for faceless YouTube creators.
+    // Auto-fetch captions if user didn't paste transcript
+    let captionSource = "user";
+    if (!transcript && videoId) {
+      const auto = await fetchYoutubeCaptions(videoId);
+      if (auto && auto.length > 80) {
+        transcript = auto;
+        captionSource = "auto";
+      }
+    }
 
-CREATOR NICHE (this user's channel focus — adapt tone and CTA to this):
-${niche}
+    const prompt = `You are a skilled YouTube scriptwriter.
 
-SOURCE VIDEO
+CREATOR NICHE: ${niche}
+
+SOURCE
 - Title: ${title}
 - Channel: ${author || "unknown"}
 - URL: ${url}
-${notes ? "- Extra notes from creator: " + notes : ""}
+${notes ? "- Notes: " + notes : ""}
 ${
   transcript
-    ? "- Transcript/captions (raw words — use to understand MEANING, do not copy phrasing):\n" +
-      transcript.slice(0, 9000)
-    : "- No transcript. Infer meaning from title and typical structure of this content type. Mark uncertain claims as general."
+    ? "- CONTENT SOURCE (" +
+      captionSource +
+      " captions/transcript). Extract MEANING and key points; do NOT copy wording:\n" +
+      transcript.slice(0, 10000)
+    : "- No captions available. Use the title and honest general knowledge of this topic type. Do not invent specific fake stats."
 }
 
-YOUR JOB
-1) Understand what the video is REALLY about: core message, argument, story beats, promises, and takeaways — not just repeating the same sentences.
-2) Write ORIGINAL scripts in a new voice/structure that teach or tell the SAME underlying content/ideas.
-3) Fit the creator's niche when natural (hooks, examples, CTA). If source is off-niche, still cover the source accurately; optionally add a light bridge to the niche only if honest.
+Write scripts that capture what the video is ABOUT (ideas, features, tips, story), not a word-for-word readback.
 
-Return ONLY raw JSON (no markdown, no code fences):
+Respond with ONLY valid JSON (no markdown fences):
 {
-  "sourceTitle": "string",
-  "contentBreakdown": "What the video is about in plain language: main topic, 3-6 key points/claims, and the overall takeaway",
+  "sourceTitle": ${JSON.stringify(title)},
+  "contentBreakdown": "Main topic + 4-7 concrete key points from the content",
   "summary": "2-3 sentences",
-  "longScript": "Original spoken long-form narration (about 200-350 words). Same ideas as source, new wording and flow. Conversational, no stage directions.",
+  "longScript": "200-350 word spoken narration, original wording, same substance",
   "shortScripts": [
-    {
-      "rank": 1,
-      "title": "Shorts title under 70 chars",
-      "hook": "strong first line",
-      "script": "35-55 second spoken script on ONE key idea from the video",
-      "captionLines": ["short on-screen lines"]
-    }
+    {"rank":1,"title":"...","hook":"...","script":"40-55s spoken","captionLines":["...","..."]}
   ],
-  "description": "YouTube description",
-  "tags": ["8-12 tags"],
-  "filmingTips": ["3-5 tips for original phone/CapCut filming"]
+  "description": "...",
+  "tags": ["..."],
+  "filmingTips": ["...","...","..."]
 }
-
-Exactly 3 shortScripts. Prefer meaning-accurate scripts over word-matching the transcript.`;
+Include exactly 3 shortScripts. JSON only.`;
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -154,7 +268,7 @@ Exactly 3 shortScripts. Prefer meaning-accurate scripts over word-matching the t
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 1400,
+        max_tokens: 1600,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -165,28 +279,24 @@ Exactly 3 shortScripts. Prefer meaning-accurate scripts over word-matching the t
     }
 
     const data = await res.json();
-    const rawText = data.content?.[0]?.text || "{}";
+    const rawText = data.content?.[0]?.text || "";
     let parsed = parseModelJson(rawText);
     if (!parsed || typeof parsed !== "object") {
       parsed = parseModelJson(String(rawText).replace(/```/g, ""));
     }
-    if (!parsed || typeof parsed !== "object") {
-      parsed = {
-        sourceTitle: title,
-        contentBreakdown: "Parse failed — try Generate again.",
-        summary: "",
-        longScript: "",
-        shortScripts: [],
-        description: "",
-        tags: [],
-        filmingTips: ["Try again", "Paste transcript for better meaning accuracy"],
-      };
+
+    // If still bad or empty longScript, fallback so UI never looks empty
+    if (!parsed || typeof parsed !== "object" || !parsed.longScript) {
+      parsed = fallbackPlanFromRaw(title, rawText);
     }
-    if (!Array.isArray(parsed.shortScripts)) parsed.shortScripts = [];
+    if (!Array.isArray(parsed.shortScripts) || parsed.shortScripts.length === 0) {
+      parsed.shortScripts = fallbackPlanFromRaw(title, parsed.longScript || rawText).shortScripts;
+    }
 
     return NextResponse.json({
       success: true,
       source: { url, videoId, title, author },
+      captionSource: transcript ? captionSource : "none",
       niche,
       plan: parsed,
     });
