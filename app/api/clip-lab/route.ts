@@ -4,16 +4,30 @@ import { createClient } from "@/lib/supabase/server";
 function parseModelJson(raw: string): any | null {
   if (!raw) return null;
   let text = raw.trim();
+
+  // Strip common markdown wrappers
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) text = fence[1].trim();
-  try {
-    return JSON.parse(text);
-  } catch {}
+
+  const attempts: string[] = [text];
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start !== -1 && end > start) {
+    attempts.push(text.slice(start, end + 1));
+  }
+
+  for (const candidate of attempts) {
     try {
-      return JSON.parse(text.slice(start, end + 1));
+      return JSON.parse(candidate);
+    } catch {}
+    // trailing commas / smart quotes
+    try {
+      const cleaned = candidate
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/,\s*([}\]])/g, "$1");
+      return JSON.parse(cleaned);
     } catch {}
   }
   return null;
@@ -106,7 +120,7 @@ ${
     : "- No transcript provided. Infer likely moments from the title and typical structure of this kind of video. Mark timestamps as estimates."
 }
 
-Return ONLY valid JSON (no markdown) with this shape:
+Return ONLY a raw JSON object. No markdown. No ``` fences. No commentary before or after. Shape:
 {
   "sourceTitle": "string",
   "angle": "one sentence: how to reuse this for a beginner AI-money or high-retention faceless channel",
@@ -158,16 +172,24 @@ Rules:
     const rawText = data.content?.[0]?.text || "{}";
     let parsed = parseModelJson(rawText);
     if (!parsed || typeof parsed !== "object") {
+      parsed = parseModelJson(rawText.replace(/```/g, ""));
+    }
+    if (!parsed || typeof parsed !== "object") {
       parsed = {
         sourceTitle: title,
-        angle: "Could not parse model output",
+        angle: "Model returned unreadable formatting. Tap Generate again — usually works on retry.",
         clips: [],
-        descriptionTemplate: rawText.slice(0, 500),
+        descriptionTemplate: "",
         tags: [],
-        capcutSteps: ["Paste transcript and try again"],
-        raw: rawText,
+        capcutSteps: [
+          "Tap Generate clip plan again",
+          "Or paste the video transcript for cleaner results",
+          "This tool builds a PLAN — CapCut still cuts the video (free Viblo-style workflow)",
+        ],
+        raw: rawText.slice(0, 1500),
       };
     }
+    if (!Array.isArray(parsed.clips)) parsed.clips = [];
 
     return NextResponse.json({
       success: true,
