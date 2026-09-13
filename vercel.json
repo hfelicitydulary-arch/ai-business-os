@@ -16,6 +16,10 @@
     {
       "path": "/api/pipeline/auto-publish",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/clip-lab/process",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
